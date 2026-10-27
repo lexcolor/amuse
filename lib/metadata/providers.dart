@@ -1,7 +1,7 @@
 import 'dart:io';
-import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
@@ -34,9 +34,10 @@ final metadataRepositoryProvider = FutureProvider<MetadataRepository>((ref) asyn
 
 /// [track] with gaps filled from the file's embedded tags. Tracks the source
 /// already described fully, and live streams (which never end, so have no
-/// header to read), are returned as-is without touching the network.
+/// header to read), are returned as-is without touching the network. The web
+/// build has no file cache, so it shows what the source provides.
 final enrichedTrackProvider = FutureProvider.family<Track, Track>((ref, track) async {
-  if (track.hasBasicTags || track.isLive) return track;
+  if (kIsWeb || track.hasBasicTags || track.isLive) return track;
   final repo = await ref.watch(metadataRepositoryProvider.future);
   try {
     return track.enrichedWith(await repo.tagsFor(track));
@@ -51,6 +52,7 @@ extension EnrichedTrackRef on WidgetRef {
 }
 
 final coverProvider = FutureProvider.family<File?, Track>((ref, track) async {
+  if (kIsWeb) return null;
   if (track.isLive) {
     final url = track.artworkUrl;
     if (url == null) return null;
@@ -72,7 +74,7 @@ final coverPaletteProvider = FutureProvider.family<(Color, Color)?, Track>((ref,
 });
 
 final lyricsProvider = FutureProvider.family<Lyrics?, Track>((ref, track) async {
-  if (track.isLive) return null;
+  if (kIsWeb || track.isLive) return null;
   final allowOnline = ref.watch(settingsProvider.select((s) => s.onlineLyrics));
   final enriched = await ref.watch(enrichedTrackProvider(track).future);
   final repo = await ref.watch(metadataRepositoryProvider.future);

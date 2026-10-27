@@ -5,10 +5,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/models.dart';
 import '../core/providers.dart';
+import '../core/settings.dart';
 import '../sources/cloud_source.dart';
 import '../metadata/providers.dart';
 import '../player/player_controller.dart';
 import '../sources/folders/locations.dart';
+import '../sources/music_source.dart';
 import 'add_location_dialog.dart';
 import 'radio_view.dart';
 import 'theme.dart';
@@ -64,6 +66,11 @@ class _FolderView extends ConsumerWidget {
     final singleAlbum = tracks.isNotEmpty && tracks.every((t) => t.album == tracks.first.album);
     // The Folders root lists what the user added, so it can be edited.
     final editable = browse.sourceId == 'folders' && browse.path.isEmpty;
+    final g = pageGutter(context);
+    // Cloud drives open in their Music folder; say so if there isn't one.
+    final musicFolderOnly = source is CloudSource &&
+        browse.path.isEmpty &&
+        ref.watch(settingsProvider.select((s) => s.musicFolderOnly));
     final locations = editable ? ref.watch(locationsProvider) : const <SavedLocation>[];
     final addButton = editable
         ? FilledButton.icon(
@@ -77,19 +84,22 @@ class _FolderView extends ConsumerWidget {
     return CustomScrollView(
       slivers: [
         SliverPadding(
-          padding: const EdgeInsets.fromLTRB(40, 28, 40, 0),
+          padding: EdgeInsets.fromLTRB(g, 28, g, 0),
           sliver: SliverToBoxAdapter(child: _Breadcrumbs(sourceName: source.displayName, path: browse.path)),
         ),
         SliverPadding(
-          padding: const EdgeInsets.fromLTRB(40, 28, 40, 32),
+          padding: EdgeInsets.fromLTRB(g, 28, g, 32),
           sliver: SliverToBoxAdapter(
             child: _Hero(
               title: browse.path.isEmpty ? source.displayName : browse.path.last.name,
               listing: FolderListing(folders: listing.folders, tracks: tracks),
               onPlay: tracks.isEmpty ? null : () => controller.playQueue(tracks, 0),
-              onShuffle: tracks.isEmpty
+              shuffle: listing.isEmpty || editable
                   ? null
-                  : () => controller.playQueue([...tracks]..shuffle(Random()), 0),
+                  : _ShuffleButton(
+                      source: source,
+                      listing: FolderListing(folders: listing.folders, tracks: tracks),
+                    ),
               action: listing.isEmpty ? null : addButton,
             ),
           ),
@@ -104,15 +114,27 @@ class _FolderView extends ConsumerWidget {
                         'address: a web folder, a song, or a radio stream.',
                     action: addButton,
                   )
-                : const StatusMessage(
-                    icon: Icons.library_music_outlined,
-                    title: 'Nothing playable here',
-                    body: 'This folder has no sub-folders or audio files.',
-                  ),
+                : musicFolderOnly
+                    ? StatusMessage(
+                        icon: Icons.library_music_outlined,
+                        title: 'No Music folder yet',
+                        body: 'Amuse opens ${source.displayName} in its Music folder. Create one and '
+                            'put your albums in it, or browse the whole drive instead.',
+                        action: FilledButton.icon(
+                          onPressed: () => ref.read(settingsProvider.notifier).setMusicFolderOnly(false),
+                          icon: const Icon(Icons.folder_open_rounded),
+                          label: const Text('Show all folders'),
+                        ),
+                      )
+                    : const StatusMessage(
+                        icon: Icons.library_music_outlined,
+                        title: 'Nothing playable here',
+                        body: 'This folder has no sub-folders or audio files.',
+                      ),
           ),
         if (listing.folders.isNotEmpty)
           SliverPadding(
-            padding: const EdgeInsets.fromLTRB(40, 0, 40, 32),
+            padding: EdgeInsets.fromLTRB(g, 0, g, 32),
             sliver: SliverGrid.builder(
               gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
                 maxCrossAxisExtent: 190,
@@ -128,6 +150,11 @@ class _FolderView extends ConsumerWidget {
                   folder: folder,
                   icon: web ? Icons.public_rounded : Icons.folder_rounded,
                   onTap: () => ref.read(browseProvider.notifier).openFolder(folder),
+                  shuffle: _ShuffleButton(
+                    source: source,
+                    listing: FolderListing(folders: [folder], tracks: const []),
+                    compact: true,
+                  ),
                   onRemove: editable ? () => ref.read(locationsProvider.notifier).remove(folder.id) : null,
                 );
               },
@@ -135,7 +162,7 @@ class _FolderView extends ConsumerWidget {
           ),
         if (tracks.isNotEmpty)
           SliverPadding(
-            padding: const EdgeInsets.fromLTRB(28, 0, 28, 40),
+            padding: EdgeInsets.fromLTRB(g - 12, 0, g - 12, 40),
             sliver: SliverList.builder(
               itemCount: tracks.length,
               itemBuilder: (context, i) => _TrackRow(
@@ -194,7 +221,26 @@ class _Breadcrumbs extends ConsumerWidget {
         const SizedBox(width: 12),
       ],
       Expanded(child: Wrap(crossAxisAlignment: WrapCrossAlignment.center, children: crumbs)),
-      if (ref.watch(sourcesProvider)[ref.watch(browseProvider).sourceId] is CloudSource)
+      // Listings are kept for the session; cloud uploads can land later.
+      IconButton(
+        onPressed: () {
+          final browse = ref.read(browseProvider);
+          ref.invalidate(folderListingProvider((browse.sourceId, browse.folderId)));
+        },
+        tooltip: 'Refresh',
+        icon: const Icon(Icons.refresh_rounded, size: 18),
+        color: AmuseColors.textMuted,
+      ),
+      if (ref.watch(sourcesProvider)[ref.watch(browseProvider).sourceId] is CloudSource && isCompact(context))
+        IconButton(
+          onPressed: () => ref
+              .read(cloudSessionProvider(ref.read(browseProvider).sourceId).notifier)
+              .signOut(),
+          tooltip: 'Disconnect',
+          icon: const Icon(Icons.logout_rounded, size: 18),
+          color: AmuseColors.textMuted,
+        )
+      else if (ref.watch(sourcesProvider)[ref.watch(browseProvider).sourceId] is CloudSource)
         TextButton.icon(
           onPressed: () => ref
               .read(cloudSessionProvider(ref.read(browseProvider).sourceId).notifier)
@@ -208,12 +254,14 @@ class _Breadcrumbs extends ConsumerWidget {
 }
 
 class _Hero extends StatelessWidget {
-  const _Hero({required this.title, required this.listing, this.onPlay, this.onShuffle, this.action});
+  const _Hero({required this.title, required this.listing, this.onPlay, this.shuffle, this.action});
 
   final String title;
   final FolderListing listing;
   final VoidCallback? onPlay;
-  final VoidCallback? onShuffle;
+
+  /// Shuffles everything in the folder, sub-folders included.
+  final Widget? shuffle;
 
   /// An extra button after Play / Shuffle.
   final Widget? action;
@@ -235,27 +283,32 @@ class _Hero extends StatelessWidget {
       if (total > Duration.zero) formatDuration(total),
     ];
 
+    final compact = isCompact(context);
+    final artSize = compact ? 116.0 : 196.0;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
         if (isAlbum)
-          CoverArt(track: tracks.first, size: 196)
+          CoverArt(track: tracks.first, size: artSize)
         else
-          Artwork(seed: heading, size: 196, icon: tracks.isEmpty ? Icons.folder_rounded : null),
-        const SizedBox(width: 32),
+          Artwork(seed: heading, size: artSize, icon: tracks.isEmpty ? Icons.folder_rounded : null),
+        SizedBox(width: compact ? 18 : 32),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(isAlbum ? 'ALBUM' : 'FOLDER',
                   style: text.labelSmall?.copyWith(color: AmuseColors.textSecondary)),
-              const SizedBox(height: 10),
-              Text(heading, style: text.displaySmall, maxLines: 2, overflow: TextOverflow.ellipsis),
-              const SizedBox(height: 12),
+              SizedBox(height: compact ? 6 : 10),
+              Text(heading,
+                  style: compact ? text.headlineSmall : text.displaySmall,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis),
+              SizedBox(height: compact ? 6 : 12),
               Text(details.join('  ·  '), style: text.bodyMedium),
-              if (onPlay != null || action != null) ...[
-                const SizedBox(height: 22),
-                Row(children: [
+              if (onPlay != null || shuffle != null || action != null) ...[
+                SizedBox(height: compact ? 14 : 22),
+                Wrap(spacing: 0, runSpacing: 10, children: [
                   if (onPlay != null) ...[
                     FilledButton.icon(
                       onPressed: onPlay,
@@ -269,19 +322,10 @@ class _Hero extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(width: 12),
-                    OutlinedButton.icon(
-                      onPressed: onShuffle,
-                      icon: const Icon(Icons.shuffle_rounded, size: 18),
-                      label: const Text('Shuffle'),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: AmuseColors.textPrimary,
-                        side: const BorderSide(color: Color(0x33FFFFFF)),
-                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-                      ),
-                    ),
                   ],
+                  ?shuffle,
                   if (action != null) ...[
-                    if (onPlay != null) const SizedBox(width: 12),
+                    if (onPlay != null || shuffle != null) const SizedBox(width: 12),
                     action!,
                   ],
                 ]),
@@ -294,12 +338,88 @@ class _Hero extends StatelessWidget {
   }
 }
 
+/// Plays everything in a folder and its sub-folders in random order.
+class _ShuffleButton extends ConsumerStatefulWidget {
+  const _ShuffleButton({required this.source, required this.listing, this.compact = false});
+
+  final MusicSource source;
+  final FolderListing listing;
+
+  /// A round icon button, for folder cards.
+  final bool compact;
+
+  @override
+  ConsumerState<_ShuffleButton> createState() => _ShuffleButtonState();
+}
+
+class _ShuffleButtonState extends ConsumerState<_ShuffleButton> {
+  /// True until the first songs are found.
+  bool _gathering = false;
+
+  Future<void> _shuffle() async {
+    setState(() => _gathering = true);
+    final found = await ref.read(playerControllerProvider.notifier).playShuffled(
+          tracksUnder(widget.source, widget.listing),
+          onStarted: () {
+            if (mounted) setState(() => _gathering = false);
+          },
+        );
+    if (!mounted) return;
+    setState(() => _gathering = false);
+    if (!found) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('No songs in this folder yet.'),
+        behavior: SnackBarBehavior.floating,
+        width: 320,
+      ));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final icon = _gathering
+        ? const SizedBox.square(dimension: 16, child: CircularProgressIndicator(strokeWidth: 2))
+        : const Icon(Icons.shuffle_rounded, size: 18);
+    if (widget.compact) {
+      return IconButton(
+        tooltip: 'Shuffle',
+        onPressed: _gathering ? null : _shuffle,
+        icon: icon,
+        style: IconButton.styleFrom(
+          backgroundColor: AmuseColors.textPrimary,
+          foregroundColor: AmuseColors.background,
+          disabledBackgroundColor: AmuseColors.textPrimary,
+        ),
+      );
+    }
+    return OutlinedButton.icon(
+      onPressed: _gathering ? null : _shuffle,
+      icon: icon,
+      label: const Text('Shuffle'),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: AmuseColors.textPrimary,
+        side: const BorderSide(color: Color(0x33FFFFFF)),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+      ),
+    );
+  }
+}
+
 class _FolderCard extends StatefulWidget {
-  const _FolderCard({required this.folder, required this.onTap, this.icon = Icons.folder_rounded, this.onRemove});
+  const _FolderCard({
+    required this.folder,
+    required this.onTap,
+    this.icon = Icons.folder_rounded,
+    this.onRemove,
+    this.shuffle,
+  });
 
   final Folder folder;
   final VoidCallback onTap;
   final IconData icon;
+
+  /// Shown as a hover button when set.
+  final Widget? shuffle;
 
   /// Shown as a hover button when set.
   final VoidCallback? onRemove;
@@ -344,6 +464,8 @@ class _FolderCardState extends State<_FolderCard> {
                     ),
                     if (_hover && widget.onRemove != null)
                       Positioned(right: 4, top: 4, child: _RemoveButton(onPressed: widget.onRemove!)),
+                    if (_hover && widget.shuffle != null)
+                      Positioned(right: 8, bottom: 8, child: widget.shuffle!),
                   ]),
                 ),
               ),
@@ -437,7 +559,7 @@ class _TrackRowState extends ConsumerState<_TrackRow> {
                 ],
               ),
             ),
-            if (widget.showAlbum)
+            if (widget.showAlbum && !isCompact(context))
               Expanded(
                 flex: 2,
                 child: Text(track.album ?? '',
@@ -445,7 +567,7 @@ class _TrackRowState extends ConsumerState<_TrackRow> {
               ),
             if (track.format != null) _FormatChip(track.format!),
             SizedBox(
-              width: 64,
+              width: isCompact(context) ? 52 : 64,
               child: _hover && widget.onRemove != null
                   ? Align(alignment: Alignment.centerRight, child: _RemoveButton(onPressed: widget.onRemove!))
                   : Text(track.isLive ? 'LIVE' : formatDuration(track.duration),

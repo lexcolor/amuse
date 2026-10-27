@@ -9,6 +9,7 @@ storage — no local copies. Built with Flutter; audio via `media_kit`
 | Area | State |
 | --- | --- |
 | Windows desktop | ✅ builds and plays |
+| Web / PWA | builds; OneDrive, Samples and Radio; phone layout; lock-screen controls. Not yet tested on an iPhone |
 | iOS / macOS / Android | scaffolded, not yet built (iOS/macOS builds need a Mac) |
 | OneDrive (Microsoft Graph) | browse folders, tags from OneDrive's `audio` facet, streaming |
 | Sample library | public FLAC + MP3 files for testing playback |
@@ -46,13 +47,66 @@ the local sign-in redirect) and the location entitlement for radio's "Near me". 
 in-app browser sign-in flow (the desktop's local redirect doesn't work on
 iOS) and background-audio / lock-screen support.
 
+### Web / PWA
+
+The same app builds as a static website that can be installed on a phone's
+home screen, so there's no app signing involved. Build it with:
+
+```powershell
+flutter build web --release --dart-define-from-file=config/app_config.json
+```
+
+Upload the contents of `build/web/` to any HTTPS static host. If the app isn't
+at the site root, add `--base-href /path/` (with both slashes) to the build.
+To install it on an iPhone, open the site in Safari, then **Share → Add to Home Screen**.
+
+**OneDrive sign-in on the web.** In the app registration, go to **Authentication → Add a
+platform → Single-page application** and add the site's exact address,
+including the trailing slash (e.g. `https://music.example.com/`). To test on
+this computer, also add `http://localhost:8765/`, then run
+`flutter run -d chrome --web-port 8765 --dart-define-from-file=config/app_config.json`.
+Without the single-page application entry, sign-in fails with `AADSTS9002326`.
+
+What's different from the desktop app:
+- **Sign-in lasts 24 hours.** Microsoft limits browser sessions to that, so expect
+  to sign in again daily.
+- **Sources:** only OneDrive, Samples and Radio. Google Drive needs the access token on every
+  audio request, which a browser's audio player can't send. Browsers can't read local folders.
+- **Metadata:** tags come from OneDrive's own metadata. There's no cover art
+  from the files, no lyrics and no online lookups, because those rely on the desktop's file cache.
+- **Radio:** stations that only stream over `http://` are blocked on an HTTPS
+  page, and song titles announced by the stream aren't available.
+- **Lock screen and media keys** show the current track and control play/pause, next and previous.
+
+**On the iPhone, check first** that playback continues with the screen locked and
+the app in the background. The web player uses a `<video>` element, which iOS
+may pause. If it does, the fix is a separate audio-only player for the web build.
+
 ### OneDrive app registration (one-time)
 
-1. <https://portal.azure.com> → **Microsoft Entra ID → App registrations → New registration**.
+A personal Microsoft account can no longer register apps on its own: the
+portal says "app registration outside a directory is deprecated". You first need
+an Entra directory (tenant). The Microsoft 365 Developer Program sandbox is no
+longer a reliable way to get one, because it now mostly goes to Visual Studio
+subscribers. Use either of these instead:
+
+- **Azure free account** (<https://azure.microsoft.com/free>), signed up with
+  your personal account. This creates a tenant called *Default Directory*. Signup asks
+  for phone and card verification, but app registrations are free and never billed.
+- **An existing work tenant** where users are allowed to register apps. The app
+  can still be limited to personal accounts, so the music account doesn't need to be
+  in that tenant.
+
+Then:
+
+1. <https://entra.microsoft.com> (or <https://portal.azure.com>), and make sure the
+   directory switcher (top right) shows the tenant → **Entra ID → App registrations → New registration**.
 2. Name: `Amuse`. Supported account types: **Personal Microsoft accounts only**.
 3. Redirect URI: platform **Public client/native (mobile & desktop)**, value `http://localhost`.
 4. Register, then copy the **Application (client) ID**.
-5. **Authentication** → *Allow public client flows* → **Yes** → Save.
+
+Sign-in uses the authorization-code flow with PKCE and no client secret, so the
+*Allow public client flows* setting isn't needed.
 
 Permissions requested at sign-in: `Files.Read`, `User.Read`, `offline_access`.
 The refresh token is kept in the OS secure store (Windows Credential Manager).
@@ -95,7 +149,8 @@ build\windows\x64\_deps\nuget-src\nuget.exe install Microsoft.Windows.CppWinRT -
 ```
 lib/
   core/       models (Track, Folder…) and Riverpod providers
-  sources/    MusicSource / CloudSource interfaces, loopback OAuth (auth/), onedrive/, google_drive/, folders/, demo
+  sources/    MusicSource / CloudSource interfaces, OAuth (auth/), onedrive/, google_drive/, folders/, demo
+  platform/   desktop / web variants (sign-in redirect, lock-screen controls, radio titles)
   player/     PlayerController — queue, lazy URL resolution, media_kit
   metadata/   tag parser, streaming header reader, online lookups, disk-cached repository
   radio/      Radio Browser client, RadioSource, location lookup, filter/favourites providers

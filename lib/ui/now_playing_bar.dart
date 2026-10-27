@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/models.dart';
 import '../metadata/providers.dart';
 import '../player/player_controller.dart';
 import 'lyrics_panel.dart';
@@ -21,6 +22,16 @@ class NowPlayingBar extends ConsumerWidget {
     // Stations announce the song on air; until they do, show where they are.
     final onAir = live ? ref.watch(streamTitleProvider) : null;
     final text = Theme.of(context).textTheme;
+    final subtitle = track == null
+        ? null
+        : playback.error ?? onAir ?? (live ? track.artist ?? 'Live radio' : track.subtitle);
+    final subtitleStyle = text.bodySmall?.copyWith(
+      color: playback.error != null ? Theme.of(context).colorScheme.error : null,
+    );
+
+    if (isCompact(context)) {
+      return _CompactBar(track: track, subtitle: subtitle, subtitleStyle: subtitleStyle, live: live);
+    }
 
     return ClipRect(
       child: BackdropFilter(
@@ -52,14 +63,7 @@ class NowPlayingBar extends ConsumerWidget {
                             Text(track.title,
                                 maxLines: 1, overflow: TextOverflow.ellipsis, style: text.titleMedium),
                             const SizedBox(height: 2),
-                            Text(
-                              playback.error ?? onAir ?? (live ? track.artist ?? 'Live radio' : track.subtitle),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: text.bodySmall?.copyWith(
-                                color: playback.error != null ? Theme.of(context).colorScheme.error : null,
-                              ),
-                            ),
+                            Text(subtitle!, maxLines: 1, overflow: TextOverflow.ellipsis, style: subtitleStyle),
                           ],
                         ),
                       ),
@@ -89,10 +93,66 @@ class NowPlayingBar extends ConsumerWidget {
   }
 }
 
+/// Phone layout: track and transport on one row, progress underneath, and no
+/// volume (phones use their hardware buttons).
+class _CompactBar extends StatelessWidget {
+  const _CompactBar({required this.track, required this.subtitle, required this.subtitleStyle, required this.live});
+
+  final Track? track;
+  final String? subtitle;
+  final TextStyle? subtitleStyle;
+  final bool live;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    final track = this.track;
+    return ClipRect(
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
+        child: Container(
+          padding: EdgeInsets.fromLTRB(14, 10, 6, MediaQuery.paddingOf(context).bottom + 4),
+          decoration: BoxDecoration(
+            color: AmuseColors.surface.withValues(alpha: 0.72),
+            border: const Border(top: BorderSide(color: AmuseColors.outline)),
+          ),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Row(children: [
+              if (track == null)
+                Expanded(child: Text('Pick something to play', style: text.bodyMedium))
+              else ...[
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 300),
+                  child: CoverArt(key: ValueKey(track), track: track, size: 46, radius: 7),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(track.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: text.titleMedium),
+                    const SizedBox(height: 2),
+                    Text(subtitle!, maxLines: 1, overflow: TextOverflow.ellipsis, style: subtitleStyle),
+                  ]),
+                ),
+              ],
+              _Transport(enabled: track != null, compact: true),
+            ]),
+            if (track != null)
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: live ? const _LiveIndicator() : const _Progress(enabled: true),
+              ),
+          ]),
+        ),
+      ),
+    );
+  }
+}
+
 class _Transport extends ConsumerWidget {
-  const _Transport({required this.enabled});
+  const _Transport({required this.enabled, this.compact = false});
 
   final bool enabled;
+  final bool compact;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -101,7 +161,9 @@ class _Transport extends ConsumerWidget {
     final playing = ref.watch(playingProvider).value ?? false;
     final buffering = ref.watch(bufferingProvider).value ?? false;
 
+    final gap = compact ? 0.0 : 10.0;
     return Row(
+      mainAxisSize: compact ? MainAxisSize.min : MainAxisSize.max,
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         IconButton(
@@ -109,7 +171,7 @@ class _Transport extends ConsumerWidget {
           icon: const Icon(Icons.skip_previous_rounded, size: 26),
           color: AmuseColors.textSecondary,
         ),
-        const SizedBox(width: 10),
+        SizedBox(width: gap),
         SizedBox(
           width: 42,
           height: 42,
@@ -139,7 +201,7 @@ class _Transport extends ConsumerWidget {
               ),
           ]),
         ),
-        const SizedBox(width: 10),
+        SizedBox(width: gap),
         IconButton(
           onPressed: enabled && playback.hasNext ? controller.next : null,
           icon: const Icon(Icons.skip_next_rounded, size: 26),

@@ -45,6 +45,7 @@ dependencies:
   geolocator: ^14.1.2
   media_kit_libs_video: ^1.0.7
   file_selector: ^1.1.0
+  web: ^1.1.1
 
 dev_dependencies:
   flutter_test:

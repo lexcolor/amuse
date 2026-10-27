@@ -25,6 +25,7 @@ import 'package:amuse/ui/lyrics_panel.dart';
 import 'package:amuse/ui/settings_dialog.dart';
 import 'package:amuse/ui/shell.dart';
 import 'package:amuse/ui/theme.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -72,6 +73,39 @@ void main() {
     });
   });
 
+  testWidgets('folder card hover', skip: _skip, (tester) async {
+    await _shoot(tester, 'folder_hover', folder: null, playing: false, before: (tester) async {
+      final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+      await mouse.addPointer(location: Offset.zero);
+      addTearDown(mouse.removePointer);
+      await mouse.moveTo(tester.getCenter(find.text('Kind of Blue')));
+      await tester.pumpAndSettle();
+    });
+  });
+
+  // iPhone-sized (logical pixels), for the web build.
+  const phone = Size(390, 844);
+
+  testWidgets('phone library', skip: _skip, (tester) async {
+    await _shoot(tester, 'phone_library', folder: null, playing: false, size: phone);
+  });
+
+  testWidgets('phone album playing', skip: _skip, (tester) async {
+    await _shoot(tester, 'phone_album',
+        folder: const Folder(id: 'kob', name: 'Kind of Blue'), playing: true, size: phone);
+  });
+
+  testWidgets('phone radio', skip: _skip, (tester) async {
+    await _shoot(tester, 'phone_radio', folder: null, playing: true, sourceId: 'radio', size: phone);
+  });
+
+  testWidgets('phone menu', skip: _skip, (tester) async {
+    await _shoot(tester, 'phone_menu', folder: null, playing: true, size: phone, before: (tester) async {
+      await tester.tap(find.byTooltip('Menu'));
+      await tester.pumpAndSettle();
+    });
+  });
+
   testWidgets('connect onedrive', skip: _skip, (tester) async {
     await _shoot(tester, 'connect',
         folder: null, playing: false, signedIn: false, sourceId: 'googledrive');
@@ -84,8 +118,9 @@ Future<void> _shoot(WidgetTester tester, String name,
     bool signedIn = true,
     bool lyricsOpen = false,
     String sourceId = 'onedrive',
+    Size size = const Size(1400, 860),
     Future<void> Function(WidgetTester)? before}) async {
-  tester.view.physicalSize = const Size(1400, 860);
+  tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   // Tests flatten shadows into solid slabs by default; render them for real.
@@ -115,7 +150,7 @@ Future<void> _pump(WidgetTester tester,
   final palette = cover == null
       ? null
       : await tester.runAsync(() async {
-          for (final size in const [196, 56, 38]) {
+          for (final size in const [196, 116, 56, 46, 38]) {
             final done = Completer<void>();
             ResizeImage(FileImage(cover), width: size)
                 .resolve(ImageConfiguration.empty)
@@ -340,10 +375,10 @@ final _lyrics = Lyrics(source: LyricsSource.embedded, synced: parseLrc('''
 
 class _FixedSettings extends SettingsController {
   @override
-  AppSettings build() => const AppSettings();
+  AppSettings build() => const AppSettings(musicFolderOnly: false);
 
   @override
-  Future<void> setOnlineLyrics(bool enabled) async => state = AppSettings(onlineLyrics: enabled);
+  Future<void> setOnlineLyrics(bool enabled) async => state = state.copyWith(onlineLyrics: enabled);
 }
 
 const _locations = [

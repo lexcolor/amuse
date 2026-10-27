@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -107,7 +108,7 @@ class RadioFilterController extends Notifier<RadioFilter> {
       }
     }
     // Start with the user's own country, from the system locale.
-    return RadioFilter(scope: RadioScope.country, countryCode: countryFromLocale(Platform.localeName));
+    return RadioFilter(scope: RadioScope.country, countryCode: countryFromLocale(kIsWeb ? PlatformDispatcher.instance.locale.toString() : Platform.localeName));
   }
 
   void useCountry(String code) =>

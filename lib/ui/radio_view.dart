@@ -23,32 +23,33 @@ class RadioView extends ConsumerWidget {
     final all = ref.watch(stationsProvider).value ?? const <RadioStation>[];
     final favorites = ref.watch(radioFavoritesProvider);
     final showFavorites = favorites.isNotEmpty && filter.query.isEmpty && filter.tag == null;
+    final g = pageGutter(context);
 
     return CustomScrollView(
       slivers: [
         SliverPadding(
-          padding: const EdgeInsets.fromLTRB(40, 36, 40, 0),
+          padding: EdgeInsets.fromLTRB(g, 36, g, 0),
           sliver: SliverToBoxAdapter(child: _Header(filter: filter, count: stations.value?.length)),
         ),
-        const SliverPadding(
-          padding: EdgeInsets.fromLTRB(40, 24, 40, 0),
+        SliverPadding(
+          padding: EdgeInsets.fromLTRB(g, 24, g, 0),
           sliver: SliverToBoxAdapter(child: _Controls()),
         ),
         if (all.isNotEmpty)
           SliverPadding(
-            padding: const EdgeInsets.fromLTRB(40, 16, 40, 0),
+            padding: EdgeInsets.fromLTRB(g, 16, g, 0),
             sliver: SliverToBoxAdapter(child: _GenreChips(tags: topTags(all), selected: filter.tag)),
           ),
         if (showFavorites) ...[
           SliverPadding(
-            padding: const EdgeInsets.fromLTRB(40, 32, 40, 12),
+            padding: EdgeInsets.fromLTRB(g, 32, g, 12),
             sliver: SliverToBoxAdapter(child: _SectionTitle('Your stations')),
           ),
           SliverToBoxAdapter(child: _FavoritesStrip(stations: favorites)),
         ],
         if (showFavorites && stations.hasValue && stations.value!.isNotEmpty)
           SliverPadding(
-            padding: const EdgeInsets.fromLTRB(40, 28, 40, 0),
+            padding: EdgeInsets.fromLTRB(g, 28, g, 0),
             sliver: SliverToBoxAdapter(
               child: _SectionTitle(filter.scope == RadioScope.nearMe ? 'Nearby' : 'Popular'),
             ),
@@ -77,7 +78,7 @@ class RadioView extends ConsumerWidget {
               SliverRest(child: _NoStations(filter: filter))
             else
               SliverPadding(
-                padding: const EdgeInsets.fromLTRB(40, 20, 40, 40),
+                padding: EdgeInsets.fromLTRB(g, 20, g, 40),
                 sliver: SliverGrid.builder(
                   gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
                     maxCrossAxisExtent: 190,
@@ -384,7 +385,7 @@ class _FavoritesStrip extends StatelessWidget {
     return SizedBox(
       height: 222,
       child: ListView.separated(
-        padding: const EdgeInsets.symmetric(horizontal: 40),
+        padding: EdgeInsets.symmetric(horizontal: pageGutter(context)),
         scrollDirection: Axis.horizontal,
         itemCount: stations.length,
         separatorBuilder: (_, _) => const SizedBox(width: 20),

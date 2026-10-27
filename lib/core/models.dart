@@ -89,11 +89,14 @@ class Track {
 
 /// A folder inside a source.
 class Folder {
-  const Folder({required this.id, required this.name, this.childCount});
+  const Folder({required this.id, required this.name, this.childCount, this.isMusicLibrary = false});
 
   final String id;
   final String name;
   final int? childCount;
+
+  /// The provider marks this as the account's Music folder, whatever its name.
+  final bool isMusicLibrary;
 }
 
 /// The contents of one folder: sub-folders first, then tracks.

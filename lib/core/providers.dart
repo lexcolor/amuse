@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../radio/radio_browser.dart';
@@ -12,13 +13,15 @@ import '../sources/music_source.dart';
 import '../sources/onedrive/onedrive_auth.dart';
 import '../sources/onedrive/onedrive_source.dart';
 import 'models.dart';
+import 'settings.dart';
 
-/// Every source, in sidebar order.
+/// Every source, in sidebar order. The web build can't add the access token
+/// to Google Drive's audio requests, or read this computer's folders.
 final sourcesProvider = Provider<Map<String, MusicSource>>((ref) {
   final sources = <MusicSource>[
     OneDriveSource(LoopbackOAuth(oneDriveOAuth)),
-    GoogleDriveSource(LoopbackOAuth(googleDriveOAuth)),
-    FoldersSource(() => ref.read(locationsProvider)),
+    if (!kIsWeb) GoogleDriveSource(LoopbackOAuth(googleDriveOAuth)),
+    if (!kIsWeb) FoldersSource(() => ref.read(locationsProvider)),
     DemoSource(),
     RadioSource(RadioBrowser()),
   ];
@@ -92,5 +95,9 @@ final browseProvider = NotifierProvider<BrowseController, BrowseState>(BrowseCon
 final folderListingProvider =
     FutureProvider.family<FolderListing, (String, String?)>((ref, key) {
   final (sourceId, folderId) = key;
-  return ref.watch(sourcesProvider)[sourceId]!.list(folderId);
+  final source = ref.watch(sourcesProvider)[sourceId]!;
+  if (folderId == null && source is CloudSource && ref.watch(settingsProvider.select((s) => s.musicFolderOnly))) {
+    return musicRootOf(source);
+  }
+  return source.list(folderId);
 });

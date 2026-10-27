@@ -1,10 +1,13 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:media_kit/media_kit.dart' hide Track;
 
 import '../core/models.dart';
 import '../core/providers.dart';
+import '../platform/icy_titles_native.dart' if (dart.library.js_interop) '../platform/icy_titles_web.dart';
+import '../platform/media_session_native.dart' if (dart.library.js_interop) '../platform/media_session_web.dart';
 
 final playerProvider = Provider<Player>((ref) {
   final player = Player(configuration: const PlayerConfiguration(title: 'Amuse'));
@@ -42,6 +45,9 @@ class PlayerController extends Notifier<PlaybackState> {
   Player get _player => ref.read(playerProvider);
   int _loadToken = 0;
 
+  /// Bumped whenever a new queue starts, to stop a shuffle still gathering.
+  int _queueToken = 0;
+
   @override
   PlaybackState build() {
     final sub = ref.watch(playerProvider).stream.completed.listen((done) {
@@ -59,8 +65,35 @@ class PlayerController extends Notifier<PlaybackState> {
   }
 
   Future<void> playQueue(List<Track> tracks, int startIndex) async {
+    _queueToken++;
     state = PlaybackState(queue: tracks, index: startIndex);
     await _load();
+  }
+
+  /// Plays everything [batches] produces in random order. Starts with the
+  /// first batch and shuffles later ones into the songs still to come.
+  /// Returns whether anything was found to play.
+  Future<bool> playShuffled(Stream<List<Track>> batches, {void Function()? onStarted}) async {
+    final token = ++_queueToken;
+    final random = Random();
+    var started = false;
+    await for (final batch in batches) {
+      if (token != _queueToken) return started;
+      if (batch.isEmpty) continue;
+      if (!started) {
+        started = true;
+        onStarted?.call();
+        state = PlaybackState(queue: [...batch]..shuffle(random), index: 0);
+        unawaited(_load());
+        continue;
+      }
+      final played = state.queue.sublist(0, state.index + 1);
+      final upcoming = [...state.queue.sublist(state.index + 1), ...batch]..shuffle(random);
+      state = PlaybackState(queue: [...played, ...upcoming], index: state.index, error: state.error);
+      // The songs found so far may already have run out.
+      if (_player.state.completed) unawaited(next());
+    }
+    return started;
   }
 
   Future<void> next() async {
@@ -83,6 +116,8 @@ class PlayerController extends Notifier<PlaybackState> {
   }
 
   Future<void> togglePlay() => _player.playOrPause();
+  Future<void> play() => _player.play();
+  Future<void> pause() => _player.pause();
   Future<void> seek(Duration position) => _player.seek(position);
   Future<void> setVolume(double volume) => _player.setVolume(volume);
 
@@ -111,12 +146,7 @@ final playerControllerProvider =
 /// Song titles that internet radio streams announce in-band (ICY metadata).
 final _icyTitlesProvider = Provider<Stream<String>>((ref) {
   final titles = StreamController<String>.broadcast();
-  final platform = ref.watch(playerProvider).platform;
-  if (platform is NativePlayer) {
-    unawaited(platform.observeProperty('metadata/by-key/icy-title', (title) async {
-      titles.add(title);
-    }));
-  }
+  observeIcyTitles(ref.watch(playerProvider), titles.add);
   ref.onDispose(titles.close);
   return titles.stream;
 });
@@ -137,3 +167,18 @@ class StreamTitle extends Notifier<String?> {
 }
 
 final streamTitleProvider = NotifierProvider<StreamTitle, String?>(StreamTitle.new);
+
+/// Keeps the lock screen / OS media controls in step with the player. Watched
+/// by the shell so it lives as long as the app.
+final mediaSessionProvider = Provider<void>((ref) {
+  final controller = ref.read(playerControllerProvider.notifier);
+  bindMediaSessionActions(
+    play: controller.play,
+    pause: controller.pause,
+    next: controller.next,
+    previous: controller.previous,
+  );
+  ref.listen(playerControllerProvider.select((s) => s.current), (_, track) => showNowPlaying(track),
+      fireImmediately: true);
+  ref.listen(playingProvider, (_, playing) => setMediaSessionPlaying(playing.value ?? false));
+});

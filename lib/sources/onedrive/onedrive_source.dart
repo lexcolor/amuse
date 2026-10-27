@@ -5,10 +5,11 @@ import 'package:http/http.dart' as http;
 import '../../core/models.dart';
 import '../auth/loopback_oauth.dart';
 import '../cloud_source.dart';
+import '../music_source.dart';
 
 /// Browses and streams music from the signed-in user's OneDrive through
 /// Microsoft Graph.
-class OneDriveSource implements CloudSource {
+class OneDriveSource implements CloudSource, DeepListing {
   OneDriveSource(this.auth, {http.Client? client}) : _http = client ?? http.Client();
 
   static const _graph = 'https://graph.microsoft.com/v1.0';
@@ -44,6 +45,7 @@ class OneDriveSource implements CloudSource {
             id: item['id'] as String,
             name: item['name'] as String,
             childCount: (item['folder'] as Map)['childCount'] as int?,
+            isMusicLibrary: (item['specialFolder'] as Map?)?['name'] == 'music',
           ));
         } else if (item['file'] != null) {
           final track = _trackFrom(item);
@@ -57,6 +59,23 @@ class OneDriveSource implements CloudSource {
     folders.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
     tracks.sort(compareTracks);
     return FolderListing(folders: folders, tracks: tracks);
+  }
+
+  /// OneDrive Personal's delta query returns a folder's whole subtree in a
+  /// few large pages instead of one request per sub-folder.
+  @override
+  Stream<List<Track>> tracksUnder(String folderId) async* {
+    Uri? next = Uri.parse('$_graph/me/drive/items/$folderId/delta?\$select=id,name,file,audio,deleted');
+    while (next != null) {
+      final page = await _get(next);
+      final tracks = [
+        for (final item in (page['value'] as List).cast<Map<String, dynamic>>())
+          if (item['file'] != null && item['deleted'] == null) ?_trackFrom(item),
+      ];
+      if (tracks.isNotEmpty) yield tracks;
+      final link = page['@odata.nextLink'] as String?;
+      next = link == null ? null : Uri.parse(link);
+    }
   }
 
   @override

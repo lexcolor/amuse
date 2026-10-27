@@ -12,11 +12,13 @@ import 'settings_dialog.dart';
 import 'now_playing_bar.dart';
 import 'theme.dart';
 
-class HomeShell extends StatelessWidget {
+class HomeShell extends ConsumerWidget {
   const HomeShell({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    ref.watch(mediaSessionProvider);
+    if (isCompact(context)) return const _CompactShell();
     return const Scaffold(
       body: Stack(
         children: [
@@ -39,6 +41,77 @@ class HomeShell extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+/// Phone layout: the sidebar moves into a drawer and the content takes the
+/// full width.
+class _CompactShell extends StatelessWidget {
+  const _CompactShell();
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      drawer: Drawer(
+        width: 280,
+        backgroundColor: AmuseColors.surface,
+        child: Builder(
+          builder: (context) => SafeArea(
+            child: _Sidebar(onNavigate: () => Navigator.of(context).pop()),
+          ),
+        ),
+      ),
+      body: Stack(
+        children: [
+          const Positioned.fill(child: _AmbientBackground()),
+          Column(
+            children: [
+              SafeArea(
+                bottom: false,
+                child: Builder(
+                  builder: (context) => Padding(
+                    padding: const EdgeInsets.fromLTRB(4, 4, 16, 0),
+                    child: Row(children: [
+                      IconButton(
+                        onPressed: () => Scaffold.of(context).openDrawer(),
+                        tooltip: 'Menu',
+                        icon: const Icon(Icons.menu_rounded),
+                        color: AmuseColors.textSecondary,
+                      ),
+                      const SizedBox(width: 4),
+                      const _Logo(),
+                    ]),
+                  ),
+                ),
+              ),
+              const Expanded(child: BrowserView()),
+              const NowPlayingBar(),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _Logo extends StatelessWidget {
+  const _Logo();
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      Container(
+        width: 30,
+        height: 30,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(9),
+          gradient: const LinearGradient(colors: [Color(0xFFC9A6FF), Color(0xFF6A3FD8)]),
+        ),
+        child: const Icon(Icons.graphic_eq_rounded, size: 18, color: Colors.white),
+      ),
+      const SizedBox(width: 12),
+      Text('Amuse', style: Theme.of(context).textTheme.headlineSmall),
+    ]);
   }
 }
 
@@ -104,49 +177,50 @@ class _LyricsSlot extends ConsumerWidget {
 }
 
 class _Sidebar extends ConsumerWidget {
-  const _Sidebar();
+  const _Sidebar({this.onNavigate});
+
+  /// Set when shown in the phone drawer, to close it after picking a source.
+  final VoidCallback? onNavigate;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final browse = ref.watch(browseProvider);
-    final text = Theme.of(context).textTheme;
+
+    final sources = ref.watch(sourcesProvider);
 
     Widget item(String label, IconData icon, {String? sourceId, String? badge}) {
+      if (sourceId != null && !sources.containsKey(sourceId)) return const SizedBox.shrink();
       final selected = sourceId != null && browse.sourceId == sourceId;
       return _SidebarItem(
         label: label,
         icon: icon,
         selected: selected,
         badge: badge,
-        onTap: sourceId == null ? null : () => ref.read(browseProvider.notifier).openSource(sourceId),
+        onTap: sourceId == null
+            ? null
+            : () {
+                ref.read(browseProvider.notifier).openSource(sourceId);
+                onNavigate?.call();
+              },
       );
     }
 
+    final inDrawer = onNavigate != null;
     return Container(
-      width: 232,
+      width: inDrawer ? null : 232,
       padding: const EdgeInsets.fromLTRB(16, 28, 16, 16),
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.22),
-        border: const Border(right: BorderSide(color: AmuseColors.outline)),
-      ),
+      decoration: inDrawer
+          ? null
+          : BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.22),
+              border: const Border(right: BorderSide(color: AmuseColors.outline)),
+            ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Padding(
-            padding: const EdgeInsets.only(left: 10, bottom: 32),
-            child: Row(children: [
-              Container(
-                width: 30,
-                height: 30,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(9),
-                  gradient: const LinearGradient(colors: [Color(0xFFC9A6FF), Color(0xFF6A3FD8)]),
-                ),
-                child: const Icon(Icons.graphic_eq_rounded, size: 18, color: Colors.white),
-              ),
-              const SizedBox(width: 12),
-              Text('Amuse', style: text.headlineSmall),
-            ]),
+          const Padding(
+            padding: EdgeInsets.only(left: 10, bottom: 32),
+            child: Align(alignment: Alignment.centerLeft, child: _Logo()),
           ),
           _sectionLabel(context, 'LIBRARY'),
           item('OneDrive', Icons.cloud_rounded, sourceId: 'onedrive'),

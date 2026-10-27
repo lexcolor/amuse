@@ -72,3 +72,9 @@ String formatDuration(Duration? d) {
       ? '${d.inHours}:${d.inMinutes.remainder(60).toString().padLeft(2, '0')}:$seconds'
       : '$minutes:$seconds';
 }
+
+/// Phone-sized windows get a single-column layout without the sidebar.
+bool isCompact(BuildContext context) => MediaQuery.sizeOf(context).width < 700;
+
+/// Side margin of the main content.
+double pageGutter(BuildContext context) => isCompact(context) ? 16 : 40;
