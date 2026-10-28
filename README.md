@@ -1,8 +1,57 @@
 # Amuse
 
-A multiplatform music player that streams your library straight from cloud
-storage — no local copies. Built with Flutter; audio via `media_kit`
+A music player that streams your library straight from cloud storage, with
+no local copies. It's made for devices without much storage. Built with Flutter; audio via `media_kit`
 (libmpv/FFmpeg), so MP3, FLAC, ALAC, AAC, OGG/Opus and WAV play everywhere.
+
+Sources: OneDrive, Google Drive, folders (on the device, an SD card, a network
+share or a web server) and internet radio.
+
+## Try it: amuse.lexdes.com
+
+We host the web build at **<https://amuse.lexdes.com>**, free of charge. It
+installs like a regular app:
+
+- **Android:** open it in Chrome, then **⋮ → Install app** (or *Add to Home
+  screen*). Chrome packages it as an Android app (a WebAPK), so it appears in the
+  app drawer and runs in its own window.
+- **iPhone / iPad:** open it in Safari, then **Share → Add to Home Screen**.
+- **Desktop:** Chrome and Edge show an install button in the address bar.
+
+The hosted service is run on a best-effort basis with the project's own API
+keys, so it comes with the limits of a web app and a shared registration:
+
+- OneDrive asks you to sign in again every 24 hours, Microsoft's limit for
+  browser apps.
+- Google shows an "unverified app" warning, and caps how many people can use
+  an unverified app.
+- No local folders or SD cards, no cover art from the files and no lyrics (see
+  [What's different from the desktop app](#web--pwa)).
+
+Privacy policy and terms: <https://amuse.lexdes.com/privacy> and
+<https://amuse.lexdes.com/terms>.
+
+## Build your own
+
+For the best experience, build a native app for your own devices, with your
+own API keys. Native builds read folders and SD cards, show the cover art and
+lyrics stored in your files, and keep you signed in.
+
+Your own keys are the right choice for any copy you build or host:
+
+- **Each registration has its own quotas and user caps.** The hosted site's
+  keys are tied to its address and won't work from another app anyway.
+- **You decide who signs in.** Your Microsoft and Google registrations only
+  serve the people you share your build with.
+- **Your music goes straight from your cloud to your device.** Amuse has no
+  server of its own; the web build's Google Drive proxy runs on your own
+  Cloudflare account if you deploy one.
+
+Registering is free and takes a few minutes per provider. See
+[OneDrive app registration](#onedrive-app-registration-one-time) and
+[Google Drive OAuth client](#google-drive-oauth-client-one-time), then
+[Running](#running). Contributions that bring Amuse to more platforms are
+very welcome. See [Contributing](#contributing).
 
 ## Status
 
@@ -10,15 +59,15 @@ storage — no local copies. Built with Flutter; audio via `media_kit`
 | --- | --- |
 | Windows desktop | ✅ builds and plays |
 | Web / PWA | OneDrive, Google Drive, Samples and Radio; phone layout; lock-screen controls. Tested as an installed iPhone PWA; privacy policy and terms at `/privacy` and `/terms` (`web/`) |
-| iOS / macOS / Android | scaffolded, not yet built (iOS/macOS builds need a Mac) |
+| Android | in progress: folders and SD cards through the system folder picker; background playback not done yet |
+| iOS / macOS | scaffolded, not yet built (needs a Mac) |
 | OneDrive (Microsoft Graph) | browse folders, tags from OneDrive's `audio` facet, streaming |
 | Sample library | public FLAC + MP3 files for testing playback |
 | Tags & cover art | read from the files themselves (FLAC, ID3v2.2–2.4); missing covers from Deezer → iTunes |
 | Lyrics | lyrics embedded in the files; LRCLIB lookup is an opt-in setting (off by default) |
 | Google Drive (Drive API v3) | browse folders (incl. shortcuts), tags read from the files, authenticated streaming |
 | Radio (Radio Browser) | stations near you (by distance) or by country, name search, genre filters, favourites, live "now playing" titles, MP3/AAC/HLS |
-| Folders | folders on this computer or a network share, web folders (server index pages such as Apache/nginx/archive.org), and direct links to songs or streams |
-| Dropbox | planned |
+| Folders | folders on this computer or a network share (on Android: internal storage and SD cards), web folders (server index pages such as Apache/nginx/archive.org), and direct links to songs or streams |
 
 ## Running
 
@@ -31,6 +80,20 @@ flutter run -d windows --dart-define-from-file=config/app_config.json
 ```
 
 Sources without an ID show setup instructions; the **Samples** library always works.
+
+### Android
+
+Install Android Studio once (it downloads the Android SDK), connect a phone
+with USB debugging on, then:
+
+```powershell
+flutter run -d <device id> --dart-define-from-file=config/app_config.json
+```
+
+Folders use Android's system folder picker (the Storage Access Framework), so
+the app needs no storage permission and reaches SD cards too. The picked folder
+stays accessible after a restart. Still to do: background playback with a
+media notification, so music keeps playing with the screen off.
 
 ### macOS / iOS
 
@@ -98,9 +161,8 @@ What's different from the desktop app:
   page, and song titles announced by the stream aren't available.
 - **Lock screen and media keys** show the current track and control play/pause, next and previous.
 
-**On the iPhone, check first** that playback continues with the screen locked and
-the app in the background. The web player uses a `<video>` element, which iOS
-may pause. If it does, the fix is a separate audio-only player for the web build.
+On the iPhone, playback continues with the screen locked, and the lock screen
+shows the track and its controls.
 
 ### OneDrive app registration (one-time)
 
@@ -192,8 +254,8 @@ tool/folders_probe.dart    adds a local and a web folder, reads tags and plays (
 test/ui_preview_test.dart  renders screens offscreen to test/goldens/*.png
 ```
 
-Every source implements `MusicSource` (`list`, `resolve`), so adding Google
-Drive, Dropbox or radio doesn't touch the player or UI. Stream URLs are
+Every source implements `MusicSource` (`list`, `resolve`), so adding a new
+source doesn't touch the player or UI. Stream URLs are
 resolved only when a track starts, because cloud links expire (~1 h on OneDrive).
 
 ### Metadata
@@ -227,6 +289,10 @@ or a `.m3u`/`.pls` playlist) becomes a live track.
   MP3 and OGG copies), only the best-quality copy is listed.
 - Won't work: OneDrive/Google Drive *share* links, Spotify/YouTube/streaming
   services, anything behind a login, and pages built by JavaScript.
+- Android: folders are picked in the system folder picker, which also lists
+  SD cards. Pasted paths don't work, since apps can't read shared storage by
+  path without a permission Amuse doesn't ask for. If an SD card is removed,
+  its folders show an error until the card is back.
 - macOS: the app sandbox only grants access to a picked folder for the
   current run. Remembering it across launches needs security-scoped
   bookmarks, which aren't implemented yet.
@@ -262,3 +328,18 @@ flutter run -d windows -t tool/metadata_probe.dart          # metadata providers
 flutter run -d windows -t tool/radio_probe.dart             # live radio streams + now-playing titles
 $env:AMUSE_PREVIEW=1; flutter test test/ui_preview_test.dart --update-goldens   # UI previews
 ```
+
+## Contributing
+
+Issues and pull requests are welcome, especially native builds for platforms
+that aren't done yet (iOS, macOS, Linux, Android polish). Please:
+
+- run `flutter analyze` and `flutter test` before opening a pull request;
+- never commit API keys: `config/app_config.json` is git-ignored for that reason;
+- keep new sources behind the `MusicSource` interface, and avoid services or
+  data whose licence wouldn't allow redistribution in an open-source app.
+
+## License
+
+[MIT](LICENSE). Third-party packages keep their own licences; in particular
+the bundled libmpv/FFmpeg libraries (via `media_kit`) are LGPL.
