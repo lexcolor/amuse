@@ -61,7 +61,19 @@ class LoopbackOAuth {
   String? _accessToken;
   DateTime _expiresAt = DateTime.fromMillisecondsSinceEpoch(0);
 
+  /// Called when the provider rejects the stored refresh token (e.g. the
+  /// 24-hour cap on Microsoft SPA tokens), so the UI can offer to reconnect.
+  void Function()? onSessionExpired;
+
   bool get isConfigured => config.isConfigured;
+
+  /// Web: whether this page was loaded with this provider's sign-in response.
+  /// The response's `state` starts with the storage key, so each provider
+  /// recognises its own without touching the others'.
+  bool get isFinishingSignIn =>
+      redirectParams()?['state']?.startsWith(_statePrefix) ?? false;
+
+  String get _statePrefix => '${config.storageKey}:';
 
   Future<bool> hasSession() async {
     if (!isConfigured) return false;
@@ -76,7 +88,7 @@ class LoopbackOAuth {
     final challenge = base64Url
         .encode(sha256.convert(ascii.encode(verifier)).bytes)
         .replaceAll('=', '');
-    final state = _randomString(24);
+    final state = '$_statePrefix${_randomString(24)}';
 
     late String redirectUri;
     final params = await openAuthorization(config, (uri) async {
@@ -104,8 +116,8 @@ class LoopbackOAuth {
 
   /// Web: finishes a sign-in this page was redirected back from.
   Future<void> _completeRedirect() async {
-    final params = redirectParams();
-    if (params == null) return;
+    if (!isFinishingSignIn) return;
+    final params = redirectParams()!;
     final pending = await _storage.read(key: _pendingKey);
     if (pending == null) {
       // On iOS the provider can send the response to Safari rather than the
@@ -115,9 +127,6 @@ class LoopbackOAuth {
           'your Home Screen and sign in to ${config.providerName} there.');
     }
     final saved = jsonDecode(pending) as Map<String, dynamic>;
-    // Another provider's response.
-    if (params['state'] != saved['state']) return;
-
     clearRedirectParams();
     await _storage.delete(key: _pendingKey);
     await _redeem(
@@ -150,10 +159,11 @@ class LoopbackOAuth {
 
   String get _pendingKey => '${config.storageKey}.pending';
 
-  /// Returns a valid access token, refreshing it when close to expiry.
-  Future<String> accessToken() async {
+  /// Returns a valid access token, refreshing it when close to expiry or
+  /// when it won't last [minValidity] longer.
+  Future<String> accessToken({Duration minValidity = Duration.zero}) async {
     final token = _accessToken;
-    if (token != null && DateTime.now().isBefore(_expiresAt)) return token;
+    if (token != null && DateTime.now().add(minValidity).isBefore(_expiresAt)) return token;
 
     final refresh = await _storage.read(key: config.storageKey);
     if (refresh == null) throw const OAuthException('Not signed in');
@@ -178,7 +188,10 @@ class LoopbackOAuth {
     );
     final json = jsonDecode(response.body) as Map<String, dynamic>;
     if (response.statusCode != 200) {
-      if (json['error'] == 'invalid_grant') await signOut();
+      if (json['error'] == 'invalid_grant') {
+        await signOut();
+        if (body['grant_type'] == 'refresh_token') onSessionExpired?.call();
+      }
       throw OAuthException(
           json['error_description'] as String? ?? 'Token request failed (${response.statusCode})');
     }

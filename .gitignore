@@ -52,3 +52,6 @@ app.*.map.json
 
 # Local OAuth client IDs (copy config/app_config.example.json)
 /config/app_config.json
+
+# Wrangler (Cloudflare deploy) cache
+/.wrangler/

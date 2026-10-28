@@ -81,11 +81,24 @@ class OneDriveSource implements CloudSource, DeepListing {
   @override
   Future<PlayableStream> resolve(Track track) async {
     // Download URLs expire after about an hour, so always fetch a fresh one.
-    final item = await _get(Uri.parse(
-        '$_graph/me/drive/items/${track.id}?\$select=id,@microsoft.graph.downloadUrl'));
-    final url = item['@microsoft.graph.downloadUrl'] as String?;
+    // No $select: OneDrive Personal drops the downloadUrl annotation when
+    // it is named there.
+    final item = await _get(Uri.parse('$_graph/me/drive/items/${track.id}'));
+    final url = item['@microsoft.graph.downloadUrl'] as String? ?? await _contentRedirect(track.id);
     if (url == null) throw StateError('OneDrive returned no download URL for ${track.title}');
     return PlayableStream(Uri.parse(url));
+  }
+
+  /// `/content` answers with a 302 to the same pre-authenticated URL.
+  /// Browsers follow redirects themselves, so this only helps on native.
+  Future<String?> _contentRedirect(String itemId) async {
+    final token = await auth.accessToken();
+    final request = http.Request('GET', Uri.parse('$_graph/me/drive/items/$itemId/content'))
+      ..followRedirects = false
+      ..headers['Authorization'] = 'Bearer $token';
+    final response = await _http.send(request);
+    await response.stream.drain<void>();
+    return response.isRedirect || response.statusCode == 302 ? response.headers['location'] : null;
   }
 
   Track? _trackFrom(Map<String, dynamic> item) {

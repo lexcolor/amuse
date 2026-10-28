@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Amuse Privacy Policy</title>
+  <link rel="icon" type="image/png" href="favicon.png">
+  <style>
+    :root { color-scheme: dark; }
+    body { margin: 0; background: #0D0B14; color: #F4F1FA; font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    main { max-width: 720px; margin: 0 auto; padding: 48px 16px 64px; }
+    h1 { font-size: 2rem; line-height: 1.2; margin: 0 0 4px; }
+    h2 { font-size: 1.25rem; margin: 40px 0 8px; }
+    h3 { font-size: 1.05rem; margin: 24px 0 4px; }
+    p, li { color: #CFC9DC; }
+    .meta { color: #A59FB5; margin: 0 0 32px; }
+    a { color: #B48CFF; }
+    code { font-size: 0.9em; background: #211C2E; padding: 1px 6px; border-radius: 4px; overflow-wrap: anywhere; }
+    .summary { background: #16131F; border: 1px solid rgba(255,255,255,0.12); border-radius: 12px; padding: 4px 20px; }
+    footer { margin-top: 48px; color: #A59FB5; font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Amuse Privacy Policy</h1>
+  <p class="meta">Effective October 27, 2026</p>
+
+  <p>Amuse is a music player that streams the music you already keep in your own cloud storage (Google Drive and
+    Microsoft OneDrive) and plays internet radio. It is developed and operated by lexdes.com ("we", "us"). This
+    policy explains what information Amuse accesses, how it is used, and the choices you have. It applies to the
+    web app at <a href="https://amuse.lexdes.com/">amuse.lexdes.com</a> and to the Amuse desktop apps provided in 
+    the open source repo.</p>
+
+  <div class="summary">
+    <h2>In short</h2>
+    <ul>
+      <li>Amuse only <strong>reads</strong> your cloud storage. It never uploads, changes, moves, shares or deletes
+        your files.</li>
+      <li>Amuse has no user accounts and no database. We don't collect, store, sell or share your files or
+        information about them.</li>
+      <li>Your sign-in stays on your device. You can disconnect at any time.</li>
+      <li>There are no ads, no analytics and no tracking.</li>
+    </ul>
+  </div>
+
+  <h2>Information Amuse accesses</h2>
+
+  <h3>Google Drive</h3>
+  <p>When you choose <em>Sign in with Google</em>, Amuse asks for one permission:
+    <code>https://www.googleapis.com/auth/drive.readonly</code> ("See and download all your Google Drive files").
+    Google Drive doesn't offer a narrower permission that lets an app browse the folders you already have and play
+    the audio files in them, so Amuse requests this read-only one. With it, Amuse accesses:</p>
+  <ul>
+    <li><strong>File and folder information</strong>: names, IDs, file types and shortcuts, so it can show your folders
+      and find your music.</li>
+    <li><strong>The contents of audio files</strong>, only when you play a song (to stream it) and, in the desktop
+      apps, the beginning of a file to read its song title, artist, album and cover art.</li>
+  </ul>
+  <p>Amuse only lists folders and files that are audio. It doesn't open documents, photos or other kinds of
+    files.</p>
+
+  <h3>Microsoft OneDrive</h3>
+  <p>When you choose to sign in with Microsoft, Amuse asks for <code>Files.Read</code> (read your files),
+    <code>User.Read</code> (sign you in) and <code>offline_access</code> (stay signed in). It reads folder and file
+    information, including the song details OneDrive provides, and streams audio files when you play them.</p>
+
+  <h2>How Amuse uses this information</h2>
+  <p>Only to provide the features you see: showing your music folders, displaying song details and artwork, and
+    playing what you choose. Amuse doesn't use your data for advertising, profiling, or to develop, improve or train
+    artificial intelligence or machine learning models. No person reads your data.</p>
+
+  <h2>Where your information is kept</h2>
+  <ul>
+    <li><strong>Sign-in tokens.</strong> After you sign in, Google or Microsoft give Amuse a token that lets it keep
+      reading your files. It is stored only on your device: in the browser's storage for the web app, or in your
+      operating system's secure storage (such as Windows Credential Manager or the macOS Keychain) for the desktop
+      apps. Short-lived access tokens are kept in memory.</li>
+    <li><strong>Desktop cache.</strong> The desktop apps keep a local cache of song details, cover art and lyrics on
+      your computer so they don't have to be downloaded again. It never leaves your computer.</li>
+    <li><strong>Settings</strong>, such as "Music folder only", are stored on your device.</li>
+  </ul>
+  <p>We operate no servers that store your files, file information or tokens.</p>
+
+  <h2>How your music reaches you</h2>
+  <p>Amuse connects directly from your device to Google, Microsoft and the other services named below.</p>
+  <p>There is one exception. Web browsers can't attach the required Google sign-in to audio playback, so when the web
+    app plays a song from Google Drive, the request goes through a small relay on our hosting provider, Cloudflare.
+    The relay adds your temporary access token (valid for about an hour) to the request, passes it to Google, and
+    streams the audio back to you as it arrives. It doesn't save the audio, the token or the file
+    information, and we don't log them. Cloudflare processes this traffic as our infrastructure provider under the <a
+      href="https://www.cloudflare.com/privacypolicy/">Cloudflare Privacy Policy</a>.</p>
+
+  <h2>Sharing</h2>
+  <p>We don't sell, rent, share or transfer information received from Google or Microsoft to anyone. The only
+    exceptions are where you ask for it (for example, by playing a song), where needed for security or to comply
+    with the law.</p>
+  <p>Amuse's use and transfer to any other app of information received from Google APIs will adhere to the <a
+      href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User Data
+      Policy</a>, including the Limited Use requirements.</p>
+
+  <h2>Other services Amuse talks to</h2>
+  <p>Some features contact free public services. These services receive your IP address and the details listed
+    below, and their own privacy policies apply. None of them receive your files or your Google or Microsoft
+    information.</p>
+  <ul>
+    <li><strong>Album art (desktop apps)</strong>: when a song has no embedded cover, the artist and album name
+      are sent to Deezer and Apple's iTunes Search to find one.</li>
+    <li><strong>Lyrics (desktop apps, off by default)</strong>: if you turn on "Find lyrics online", the song title
+      and artist are sent to LRCLIB (lrclib.net).</li>
+    <li><strong>Radio</strong>: station searches, including a country you pick, go to the Radio Browser directory
+      (radio-browser.info). If you use "Near me" and allow location access, your position is rounded to about 1 km
+      on your device before it is sent. Playing a station connects you directly to that station's server.</li>
+    <li><strong>Samples</strong>: the built-in sample songs stream from filesamples.com and soundhelix.com.</li>
+  </ul>
+
+  <h2>Your choices</h2>
+  <ul>
+    <li><strong>Sign out</strong> of Google Drive or OneDrive in Amuse. This deletes the stored sign-in from your
+      device.</li>
+    <li><strong>Revoke access</strong> at any time from your <a href="https://myaccount.google.com/permissions">Google
+        Account permissions</a> or <a href="https://account.live.com/consent/Manage">Microsoft account app
+        permissions</a>.</li>
+    <li><strong>Delete local data</strong> by clearing the site's data in your browser, removing the web app from your
+      home screen, or uninstalling the desktop app.</li>
+  </ul>
+  <p>Because we don't hold your data, there is nothing for us to delete on our side. If you have a question or a
+    request, contact us below.</p>
+
+  <h2>Security</h2>
+  <p>All connections use HTTPS. Sign-in uses OAuth 2.0 with PKCE, and Amuse never sees your password.</p>
+
+  <h2>Children</h2>
+  <p>Amuse isn't directed at children under 13, and we don't knowingly collect information from them.</p>
+
+  <h2>Changes</h2>
+  <p>If this policy changes, we'll update it on this page and change the effective date. If a change affects
+    how Amuse uses Google or Microsoft information, we'll ask for your consent before applying it.</p>
+
+  <h2>Contact</h2>
+  <p>Amuse: <a href="mailto:amuse@lexdes.com">amuse@lexdes.com</a></p>
+
+  <footer><a href="./">Open Amuse</a> · <a href="terms">Terms of Service</a></footer>
+</main>
+</body>
+</html>

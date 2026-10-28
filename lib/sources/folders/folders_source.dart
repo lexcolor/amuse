@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 
 import '../../core/models.dart';
+import '../../platform/document_tree.dart';
 import '../music_source.dart';
 import 'locations.dart';
 
@@ -15,11 +16,15 @@ final _coverName = RegExp(r'^(cover|folder|front|album|albumart)\.(jpe?g|png|web
 /// Folder ids are absolute paths or absolute URLs, so any depth can be
 /// listed without remembering how the user got there.
 class FoldersSource implements MusicSource {
-  FoldersSource(this._locations, {http.Client? client}) : _http = client ?? http.Client();
+  FoldersSource(this._locations, {http.Client? client, this.documents = const DocumentTree()})
+      : _http = client ?? http.Client();
 
   /// Read on every root listing, so adding a location doesn't rebuild sources.
   final List<SavedLocation> Function() _locations;
   final http.Client _http;
+
+  /// Android folders, whose ids are `content://` URIs.
+  final DocumentTree documents;
 
   @override
   String get id => 'folders';
@@ -42,16 +47,35 @@ class FoldersSource implements MusicSource {
         ],
       );
     }
-    return isWebAddress(folderId) ? _listWeb(folderId) : _listLocal(folderId);
+    if (isWebAddress(folderId)) return _listWeb(folderId);
+    return isContentUri(folderId) ? _listDocuments(folderId) : _listLocal(folderId);
   }
 
   @override
   Future<PlayableStream> resolve(Track track) async => PlayableStream(trackUri(track.id));
 
   /// Track ids are web addresses, `file:` URIs (single local files added as
-  /// links) or plain paths (files found while listing a folder).
+  /// links), Android `content:` URIs or plain paths (files found while
+  /// listing a folder).
   static Uri trackUri(String id) =>
-      isWebAddress(id) || id.startsWith('file:') ? Uri.parse(id) : Uri.file(id);
+      isWebAddress(id) || id.startsWith('file:') || isContentUri(id) ? Uri.parse(id) : Uri.file(id);
+
+  Future<FolderListing> _listDocuments(String uri) async {
+    final folders = <Folder>[];
+    final tracks = <Track>[];
+    String? cover;
+    for (final entry in await documents.list(uri)) {
+      if (entry.name.startsWith('.')) continue;
+      if (entry.isFolder) {
+        folders.add(Folder(id: entry.uri, name: entry.name));
+      } else if (_coverName.hasMatch(entry.name)) {
+        cover ??= entry.uri;
+      } else if (audioExtensions.contains(extensionOf(entry.name))) {
+        tracks.add(_track(entry.uri, entry.name));
+      }
+    }
+    return _finish(folders, tracks, cover);
+  }
 
   Future<FolderListing> _listLocal(String path) async {
     final folders = <Folder>[];

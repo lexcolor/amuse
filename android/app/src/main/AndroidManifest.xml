@@ -1,6 +1,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Debug builds add INTERNET automatically; release builds need it here. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Radio "Near me". -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
     <application
-        android:label="amuse"
+        android:label="Amuse"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

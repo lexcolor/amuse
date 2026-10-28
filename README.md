@@ -9,7 +9,7 @@ storage — no local copies. Built with Flutter; audio via `media_kit`
 | Area | State |
 | --- | --- |
 | Windows desktop | ✅ builds and plays |
-| Web / PWA | builds; OneDrive, Samples and Radio; phone layout; lock-screen controls. Not yet tested on an iPhone |
+| Web / PWA | OneDrive, Google Drive, Samples and Radio; phone layout; lock-screen controls. Tested as an installed iPhone PWA; privacy policy and terms at `/privacy` and `/terms` (`web/`) |
 | iOS / macOS / Android | scaffolded, not yet built (iOS/macOS builds need a Mac) |
 | OneDrive (Microsoft Graph) | browse folders, tags from OneDrive's `audio` facet, streaming |
 | Sample library | public FLAC + MP3 files for testing playback |
@@ -56,8 +56,18 @@ home screen, so there's no app signing involved. Build it with:
 flutter build web --release --dart-define-from-file=config/app_config.json
 ```
 
-Upload the contents of `build/web/` to any HTTPS static host. If the app isn't
-at the site root, add `--base-href /path/` (with both slashes) to the build.
+It's hosted on Cloudflare at <https://amuse.lexdes.com>: the static files plus a
+small Worker that streams Google Drive files (see `wrangler.jsonc` and
+`worker/index.js`). To build and deploy in one step, needing Node.js and a
+one-time `npx wrangler login`:
+
+```powershell
+powershell -File tool/deploy_web.ps1
+```
+
+`build/web/` also works on any other HTTPS static host, except for Google Drive,
+which needs the Worker's `/drive/` route. If the app isn't at the
+site root, add `--base-href /path/` (with both slashes) to the build.
 To install it on an iPhone, open the site in Safari, then **Share → Add to Home Screen**.
 
 **OneDrive sign-in on the web.** In the app registration, go to **Authentication → Add a
@@ -67,12 +77,22 @@ this computer, also add `http://localhost:8765/`, then run
 `flutter run -d chrome --web-port 8765 --dart-define-from-file=config/app_config.json`.
 Without the single-page application entry, sign-in fails with `AADSTS9002326`.
 
+**Google Drive on the web** uses the separate *Web application* client (see the
+Google Drive setup below). The browser's audio player can't send Drive's
+access token, so the app plays `/drive/<file id>?token=…` from its own site, and the Worker
+forwards the request to Drive with the token attached. Byte ranges pass through, and it
+fixes the audio type when Drive only says `application/octet-stream`, because Safari
+refuses to play either way otherwise. `flutter run -d chrome` has no Worker, so to
+try Drive playback locally, build first and run `npx wrangler dev`.
+The web client's secret ends up in the page's script, so anyone deploying
+their own copy should register their own client.
+
 What's different from the desktop app:
 - **Sign-in lasts 24 hours.** Microsoft limits browser sessions to that, so expect
   to sign in again daily.
-- **Sources:** only OneDrive, Samples and Radio. Google Drive needs the access token on every
-  audio request, which a browser's audio player can't send. Browsers can't read local folders.
-- **Metadata:** tags come from OneDrive's own metadata. There's no cover art
+- **Sources:** everything except Folders, since browsers can't read local folders.
+- **Metadata:** tags come from OneDrive's own metadata; Google Drive tracks show
+  their file names. There's no cover art
   from the files, no lyrics and no online lookups, because those rely on the desktop's file cache.
 - **Radio:** stations that only stream over `http://` are blocked on an HTTPS
   page, and song titles announced by the stream aren't available.
@@ -125,11 +145,20 @@ personal Microsoft account can sign in to the registered app.
    to *In production* — unverified apps show a "Google hasn't verified this
    app" warning once and are capped at 100 users, which is fine for personal use.
 5. **Clients → Create client** → type **Desktop app** → copy the **Client ID**
-   and **Client secret** into `config/app_config.json`.
+   and **Client secret** into `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` in
+   `config/app_config.json`.
+6. For the web build, create a second client of type **Web application**:
+   - **Authorized JavaScript origins:** the site's origin, e.g. `https://amuse.lexdes.com`.
+   - **Authorized redirect URIs:** the site's exact address *with* the trailing
+     slash, e.g. `https://amuse.lexdes.com/` (add `http://localhost:8787/` to try it
+     under `wrangler dev`).
+   - Copy its ID and secret into `GOOGLE_WEB_CLIENT_ID` / `GOOGLE_WEB_CLIENT_SECRET`.
 
 Scope requested: `drive.readonly`. Desktop-app client secrets are not
 confidential (Google treats installed apps as public clients); the sign-in uses
 PKCE and a `127.0.0.1` loopback redirect, which needs no extra configuration.
+The web build redirects back to the page itself, so the address must match the
+web client's redirect URI exactly.
 
 ### Windows build note
 

@@ -214,7 +214,7 @@ class _FakeAuth extends LoopbackOAuth {
   _FakeAuth() : super(googleDriveOAuth);
 
   @override
-  Future<String> accessToken() async => 'token-1';
+  Future<String> accessToken({Duration minValidity = Duration.zero}) async => 'token-1';
 }
 
 class _FakeDrive implements CloudSource {

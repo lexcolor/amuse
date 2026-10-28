@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:amuse/core/models.dart';
+import 'package:amuse/platform/document_tree.dart';
 import 'package:amuse/sources/folders/folders_source.dart';
 import 'package:amuse/sources/folders/locations.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -28,6 +29,15 @@ const _nginxIndex = '''
 <a href="track.ogg">track.ogg</a>     01-Jan-2026 10:00    12345
 <a href="deep/inner/x.mp3">x.mp3</a>
 </pre><hr></body></html>''';
+
+class _FakeDocuments extends DocumentTree {
+  const _FakeDocuments(this.folders);
+
+  final Map<String, List<DocumentEntry>> folders;
+
+  @override
+  Future<List<DocumentEntry>> list(String folderUri) async => folders[folderUri]!;
+}
 
 void main() {
   group('FoldersSource', () {
@@ -95,6 +105,29 @@ void main() {
       expect(listing.tracks.map((t) => (t.title, t.trackNumber)), [('So What', 1), ('Freddie Freeloader', 2)]);
       expect(listing.tracks.first.artworkUrl, 'https://host.example/music/Kind%20of%20Blue/cover.jpg');
     });
+  });
+
+  test('lists an Android document folder and plays its content URIs', () async {
+    const tree = 'content://com.android.externalstorage.documents/tree/1A2B-3C4D%3AMusic';
+    String doc(String path) => '$tree/document/1A2B-3C4D%3AMusic%2F${Uri.encodeComponent(path)}';
+    final source = FoldersSource(() => const [], documents: _FakeDocuments({
+      tree: [
+        DocumentEntry(uri: doc('Disco 2'), name: 'Disco 2', isFolder: true),
+        DocumentEntry(uri: doc('02 - Dos.mp3'), name: '02 - Dos.mp3', isFolder: false),
+        DocumentEntry(uri: doc('01 - Uno.flac'), name: '01 - Uno.flac', isFolder: false),
+        DocumentEntry(uri: doc('01 - Uno.mp3'), name: '01 - Uno.mp3', isFolder: false),
+        DocumentEntry(uri: doc('folder.jpg'), name: 'folder.jpg', isFolder: false),
+        DocumentEntry(uri: doc('.thumbnails'), name: '.thumbnails', isFolder: true),
+      ],
+    }));
+
+    final listing = await source.list(tree);
+    expect(listing.folders.map((f) => (f.name, f.id)), [('Disco 2', doc('Disco 2'))]);
+    expect(listing.tracks.map((t) => (t.title, t.format)), [('Uno', 'FLAC'), ('Dos', 'MP3')]);
+    expect(listing.tracks.first.artworkUrl, doc('folder.jpg'));
+
+    final stream = await source.resolve(listing.tracks.first);
+    expect(stream.uri.toString(), doc('01 - Uno.flac'));
   });
 
   test('same song in several formats is listed once, best copy kept', () {

@@ -30,21 +30,30 @@ Future<EmbeddedTags> readRemoteTags(
 Future<EmbeddedTags> readLocalTags(File file, {int maxBytes = 16 * 1024 * 1024}) async {
   final handle = await file.open();
   try {
-    final buffer = _GrowableBuffer();
-    var needed = 64 * 1024;
-    while (true) {
-      final chunk = await handle.read(needed - buffer.length);
-      buffer.add(chunk);
-      final atEnd = chunk.isEmpty || buffer.length < needed;
-      try {
-        return parseTags(buffer.view, truncated: atEnd || buffer.length >= maxBytes);
-      } on NeedMoreData catch (e) {
-        if (atEnd || buffer.length >= maxBytes) return parseTags(buffer.view, truncated: true);
-        needed = e.bytes.clamp(buffer.length + 1, maxBytes);
-      }
-    }
+    return await readTagsWith((_, length) => handle.read(length), maxBytes: maxBytes);
   } finally {
     await handle.close();
+  }
+}
+
+/// Same as [readLocalTags] for anything that hands out the file's bytes in
+/// order (Android documents). [read] returns fewer bytes only at the end.
+Future<EmbeddedTags> readTagsWith(
+  Future<List<int>> Function(int offset, int length) read, {
+  int maxBytes = 16 * 1024 * 1024,
+}) async {
+  final buffer = _GrowableBuffer();
+  var needed = 64 * 1024;
+  while (true) {
+    final chunk = await read(buffer.length, needed - buffer.length);
+    buffer.add(chunk);
+    final atEnd = chunk.isEmpty || buffer.length < needed;
+    try {
+      return parseTags(buffer.view, truncated: atEnd || buffer.length >= maxBytes);
+    } on NeedMoreData catch (e) {
+      if (atEnd || buffer.length >= maxBytes) return parseTags(buffer.view, truncated: true);
+      needed = e.bytes.clamp(buffer.length + 1, maxBytes);
+    }
   }
 }
 

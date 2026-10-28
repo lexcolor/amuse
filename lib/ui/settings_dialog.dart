@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../core/settings.dart';
 import 'theme.dart';
@@ -9,6 +10,10 @@ Future<void> showSettingsDialog(BuildContext context) => showDialog<void>(
       barrierColor: Colors.black.withValues(alpha: 0.55),
       builder: (_) => const _SettingsDialog(),
     );
+
+/// Hosted with the web build (web/privacy.html, web/terms.html).
+final _privacyUrl = Uri.parse('https://amuse.lexdes.com/privacy');
+final _termsUrl = Uri.parse('https://amuse.lexdes.com/terms');
 
 class _SettingsDialog extends ConsumerWidget {
   const _SettingsDialog();
@@ -26,7 +31,7 @@ class _SettingsDialog extends ConsumerWidget {
       ),
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 520),
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(28, 24, 20, 20),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -64,6 +69,13 @@ class _SettingsDialog extends ConsumerWidget {
                 value: settings.onlineLyrics,
                 onChanged: ref.read(settingsProvider.notifier).setOnlineLyrics,
               ),
+              const SizedBox(height: 28),
+              Text('ABOUT', style: text.labelSmall?.copyWith(color: AmuseColors.textMuted)),
+              const SizedBox(height: 4),
+              Wrap(spacing: 8, children: [
+                TextButton(onPressed: () => launchUrl(_privacyUrl), child: const Text('Privacy policy')),
+                TextButton(onPressed: () => launchUrl(_termsUrl), child: const Text('Terms of service')),
+              ]),
             ],
           ),
         ),

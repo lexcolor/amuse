@@ -15,12 +15,12 @@ import '../sources/onedrive/onedrive_source.dart';
 import 'models.dart';
 import 'settings.dart';
 
-/// Every source, in sidebar order. The web build can't add the access token
-/// to Google Drive's audio requests, or read this computer's folders.
+/// Every source, in sidebar order. The web build can't read this computer's
+/// folders.
 final sourcesProvider = Provider<Map<String, MusicSource>>((ref) {
   final sources = <MusicSource>[
     OneDriveSource(LoopbackOAuth(oneDriveOAuth)),
-    if (!kIsWeb) GoogleDriveSource(LoopbackOAuth(googleDriveOAuth)),
+    GoogleDriveSource(LoopbackOAuth(googleDriveOAuth)),
     if (!kIsWeb) FoldersSource(() => ref.read(locationsProvider)),
     DemoSource(),
     RadioSource(RadioBrowser()),
@@ -37,7 +37,13 @@ class CloudSession extends AsyncNotifier<bool> {
   LoopbackOAuth get _auth => (ref.read(sourcesProvider)[sourceId]! as CloudSource).auth;
 
   @override
-  Future<bool> build() => _auth.hasSession();
+  Future<bool> build() {
+    _auth.onSessionExpired = () {
+      ref.invalidate(folderListingProvider);
+      state = AsyncError(const SessionExpired(), StackTrace.current);
+    };
+    return _auth.hasSession();
+  }
 
   Future<void> signIn() async {
     state = const AsyncLoading();
@@ -56,6 +62,11 @@ class CloudSession extends AsyncNotifier<bool> {
   }
 }
 
+/// The provider no longer accepts the stored sign-in; signing in again fixes it.
+class SessionExpired implements Exception {
+  const SessionExpired();
+}
+
 final cloudSessionProvider =
     AsyncNotifierProvider.family<CloudSession, bool, String>(CloudSession.new);
 
@@ -71,11 +82,14 @@ class BrowseState {
 
 class BrowseController extends Notifier<BrowseState> {
   @override
-  /// Opens the first cloud source that's set up, else the samples.
+  /// Opens the source a web sign-in is returning to, else the first cloud
+  /// source that's set up, else the samples.
   BrowseState build() {
     final sources = ref.read(sourcesProvider).values;
     final configured = sources.whereType<CloudSource>().where((s) => s.auth.isConfigured);
-    return BrowseState(sourceId: configured.isEmpty ? 'demo' : configured.first.id);
+    final returning = configured.where((s) => s.auth.isFinishingSignIn).firstOrNull;
+    return BrowseState(
+        sourceId: returning?.id ?? (configured.isEmpty ? 'demo' : configured.first.id));
   }
 
   void openSource(String sourceId) => state = BrowseState(sourceId: sourceId);

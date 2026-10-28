@@ -7,6 +7,7 @@ import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 
 import '../core/models.dart';
+import '../platform/document_tree.dart';
 import '../sources/music_source.dart';
 import 'header_reader.dart';
 import 'lyrics.dart';
@@ -24,11 +25,15 @@ class MetadataRepository {
     required this.cacheDir,
     required this.sources,
     required http.Client client,
+    this.documents = const DocumentTree(),
   })  : _http = client,
         _online = OnlineLookup(client);
 
   final Directory cacheDir;
   final Map<String, MusicSource> sources;
+
+  /// Reads Android `content:` files (tags and folder covers).
+  final DocumentTree documents;
   final http.Client _http;
   final OnlineLookup _online;
 
@@ -73,6 +78,10 @@ class MetadataRepository {
     }
     final stream = await sources[track.sourceId]!.resolve(track);
     if (stream.uri.scheme == 'file') return readLocalTags(File.fromUri(stream.uri));
+    if (stream.uri.scheme == 'content') {
+      final uri = stream.uri.toString();
+      return readTagsWith((offset, length) => documents.read(uri, offset, length));
+    }
     return readRemoteTags(_http, stream);
   }
 
@@ -106,7 +115,11 @@ class MetadataRepository {
       final artwork = track.artworkUrl;
       if (artwork != null) {
         final uri = Uri.parse(artwork);
-        final file = uri.scheme == 'file' ? File.fromUri(uri) : await artworkFor(artwork);
+        final file = switch (uri.scheme) {
+          'file' => File.fromUri(uri),
+          'content' => await _copyDocument(artwork, _coverFile(key, _imageExtension(artwork))),
+          _ => await artworkFor(artwork),
+        };
         if (file != null && await file.exists()) return file;
       }
 
@@ -159,6 +172,30 @@ class MetadataRepository {
   }
 
   File _coverFile(String key, String ext) => _file('covers', '$key.$ext');
+
+  /// Copies an Android document (a folder's cover.jpg) into the cache, since
+  /// image widgets can't open `content:` URIs.
+  Future<File?> _copyDocument(String uri, File target) async {
+    const chunk = 256 * 1024;
+    final bytes = BytesBuilder(copy: false);
+    try {
+      while (true) {
+        final part = await documents.read(uri, bytes.length, chunk);
+        bytes.add(part);
+        if (part.length < chunk || bytes.length > 32 * 1024 * 1024) break;
+      }
+    } on DocumentAccessException {
+      return null;
+    }
+    if (bytes.isEmpty) return null;
+    await _write(target, bytes.takeBytes());
+    return target;
+  }
+
+  static String _imageExtension(String uri) {
+    final name = uri.toLowerCase();
+    return name.endsWith('.png') ? 'png' : name.endsWith('.webp') ? 'webp' : 'jpg';
+  }
 
   // ----------------------------------------------------------- lyrics ---
 

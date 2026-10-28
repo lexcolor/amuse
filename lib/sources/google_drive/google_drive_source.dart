@@ -1,18 +1,26 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../../core/models.dart';
 import '../auth/loopback_oauth.dart';
 import '../cloud_source.dart';
 
-/// OAuth "Desktop app" client from Google Cloud Console, supplied at build time:
-/// `--dart-define=GOOGLE_CLIENT_ID=... --dart-define=GOOGLE_CLIENT_SECRET=...`
-const googleClientId = String.fromEnvironment('GOOGLE_CLIENT_ID');
+/// OAuth clients from Google Cloud Console, supplied at build time: a
+/// "Desktop app" client (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`) and, for
+/// the web build, a "Web application" client (`GOOGLE_WEB_CLIENT_ID`, ...).
+const _clientIdDefine = kIsWeb ? 'GOOGLE_WEB_CLIENT_ID' : 'GOOGLE_CLIENT_ID';
+const googleClientId = kIsWeb
+    ? String.fromEnvironment('GOOGLE_WEB_CLIENT_ID')
+    : String.fromEnvironment('GOOGLE_CLIENT_ID');
 
-/// Desktop-app secrets are not confidential (Google documents installed apps
-/// as public clients), but the token endpoint may still expect one.
-const googleClientSecret = String.fromEnvironment('GOOGLE_CLIENT_SECRET');
+/// Neither secret is confidential: the desktop one ships in the binary
+/// (Google documents installed apps as public clients) and the web one in
+/// the page's script, but Google's token endpoint requires them.
+const googleClientSecret = kIsWeb
+    ? String.fromEnvironment('GOOGLE_WEB_CLIENT_SECRET')
+    : String.fromEnvironment('GOOGLE_CLIENT_SECRET');
 
 const googleDriveOAuth = OAuthConfig(
   providerName: 'Google Drive',
@@ -31,8 +39,10 @@ const googleDriveOAuth = OAuthConfig(
 /// Browses and streams music from Google Drive (Drive API v3).
 ///
 /// Drive has no pre-authenticated download links, so streams carry the
-/// access token in an Authorization header; tags come from the files
-/// themselves since Drive doesn't extract audio metadata.
+/// access token in an Authorization header. A browser's audio player can't
+/// send one, so the web build streams through the host's `/drive/` proxy
+/// (worker/index.js), which adds it. Tags come from the files themselves
+/// since Drive doesn't extract audio metadata.
 class GoogleDriveSource implements CloudSource {
   GoogleDriveSource(this.auth, {http.Client? client}) : _http = client ?? http.Client();
 
@@ -53,7 +63,7 @@ class GoogleDriveSource implements CloudSource {
   String get signInLabel => 'Sign in with Google';
 
   @override
-  String get clientIdDefine => 'GOOGLE_CLIENT_ID';
+  String get clientIdDefine => _clientIdDefine;
 
   @override
   Future<FolderListing> list(String? folderId) async {
@@ -104,6 +114,16 @@ class GoogleDriveSource implements CloudSource {
 
   @override
   Future<PlayableStream> resolve(Track track) async {
+    if (kIsWeb) {
+      // Browsers keep making range requests while playing (Safari in small
+      // chunks), so the token must outlive the track, not just the start.
+      final token = await auth.accessToken(minValidity: const Duration(minutes: 30));
+      return PlayableStream(Uri.base.resolve('drive/${track.id}').replace(queryParameters: {
+        'token': token,
+        // Lets the proxy name the audio type when Drive only knows it as bytes.
+        'format': ?track.format?.toLowerCase(),
+      }));
+    }
     // Fetch a fresh token per track: a token expiring mid-stream would only
     // break seeking (new range requests), not the current playback.
     final token = await auth.accessToken();

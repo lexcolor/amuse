@@ -31,7 +31,7 @@ class BrowserView extends ConsumerWidget {
       if (!source.auth.isConfigured) return _SetupNotice(source: source);
       final session = ref.watch(cloudSessionProvider(source.id));
       if (session.isLoading) return const Center(child: CircularProgressIndicator());
-      if (session.value != true) return _Connect(source: source, error: session.error);
+      if (session.hasError || session.value != true) return _Connect(source: source, error: session.error);
     }
 
     final listing = ref.watch(folderListingProvider((browse.sourceId, browse.folderId)));
@@ -41,10 +41,19 @@ class BrowserView extends ConsumerWidget {
         icon: Icons.cloud_off_rounded,
         title: 'Couldn\'t load this folder',
         body: '$e',
-        action: FilledButton.tonal(
-          onPressed: () => ref.invalidate(folderListingProvider((browse.sourceId, browse.folderId))),
-          child: const Text('Try again'),
-        ),
+        action: Wrap(spacing: 12, runSpacing: 12, alignment: WrapAlignment.center, children: [
+          FilledButton.tonal(
+            onPressed: () => ref.invalidate(folderListingProvider((browse.sourceId, browse.folderId))),
+            child: const Text('Try again'),
+          ),
+          // A stale sign-in can fail in ways that look like any other error.
+          if (source is CloudSource)
+            OutlinedButton.icon(
+              onPressed: () => ref.read(cloudSessionProvider(source.id).notifier).signIn(),
+              icon: const Icon(Icons.sync_rounded, size: 18),
+              label: const Text('Reconnect'),
+            ),
+        ]),
       ),
       data: (data) => _FolderView(browse: browse, listing: data),
     );
@@ -110,8 +119,11 @@ class _FolderView extends ConsumerWidget {
                 ? StatusMessage(
                     icon: Icons.create_new_folder_rounded,
                     title: 'Bring your own music',
-                    body: 'Add a folder from this computer or a network share, or paste a web '
-                        'address: a web folder, a song, or a radio stream.',
+                    body: Theme.of(context).platform == TargetPlatform.android
+                        ? 'Add a folder from this device or its SD card, or paste a web '
+                            'address: a web folder, a song, or a radio stream.'
+                        : 'Add a folder from this computer or a network share, or paste a web '
+                            'address: a web folder, a song, or a radio stream.',
                     action: addButton,
                   )
                 : musicFolderOnly
@@ -613,16 +625,19 @@ class _Connect extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final expired = error is SessionExpired;
     return StatusMessage(
-      icon: Icons.cloud_rounded,
-      title: 'Connect your ${source.displayName}',
-      body: error != null
-          ? 'Sign-in failed: $error'
-          : 'Stream your music straight from the cloud. Amuse only asks for read access to your files.',
+      icon: expired ? Icons.cloud_sync_rounded : Icons.cloud_rounded,
+      title: expired ? 'Reconnect your ${source.displayName}' : 'Connect your ${source.displayName}',
+      body: expired
+          ? 'Your ${source.displayName} sign-in has expired. Reconnect to keep listening.'
+          : error != null
+              ? 'Sign-in failed: $error'
+              : 'Stream your music straight from the cloud. Amuse only asks for read access to your files.',
       action: FilledButton.icon(
         onPressed: () => ref.read(cloudSessionProvider(source.id).notifier).signIn(),
-        icon: const Icon(Icons.login_rounded),
-        label: Text(source.signInLabel),
+        icon: Icon(expired ? Icons.sync_rounded : Icons.login_rounded),
+        label: Text(expired ? 'Reconnect' : source.signInLabel),
         style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 16)),
       ),
     );

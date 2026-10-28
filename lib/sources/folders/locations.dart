@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/models.dart';
 import '../../core/providers.dart';
 import '../../core/settings.dart';
+import '../../platform/document_tree.dart';
 import 'folders_source.dart';
 
 const _locationsKey = 'folders.locations';
@@ -37,7 +38,8 @@ class SavedLocation {
 
   final LocationKind kind;
 
-  /// A path for [LocationKind.folder]; a URL (web or `file:`) otherwise.
+  /// A path (or, on Android, a `content:` folder grant) for
+  /// [LocationKind.folder]; a URL (web or `file:`) otherwise.
   final String uri;
   final String name;
 
@@ -138,7 +140,10 @@ class LocationsController extends Notifier<List<SavedLocation>> {
   void add(SavedLocation location) =>
       _save([for (final l in state) if (l.uri != location.uri) l, location]);
 
-  void remove(String uri) => _save([for (final l in state) if (l.uri != uri) l]);
+  void remove(String uri) {
+    _save([for (final l in state) if (l.uri != uri) l]);
+    if (isContentUri(uri)) unawaited(const DocumentTree().release(uri).catchError((_) {}));
+  }
 
   void _save(List<SavedLocation> locations) {
     state = locations;
