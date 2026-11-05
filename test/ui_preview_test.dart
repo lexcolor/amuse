@@ -32,11 +32,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 final _skip = !Platform.environment.containsKey('AMUSE_PREVIEW');
 
 void main() {
   setUpAll(_loadFonts);
+  setUpAll(() => PackageInfo.setMockInitialValues(
+      appName: 'amuse', packageName: 'dev.amuse.amuse', version: '1.1.0', buildNumber: '2',
+      buildSignature: ''));
 
   testWidgets('library root', skip: _skip, (tester) async {
     await _shoot(tester, 'library', folder: null, playing: false);

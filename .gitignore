@@ -55,3 +55,7 @@ app.*.map.json
 
 # Wrangler (Cloudflare deploy) cache
 /.wrangler/
+
+# Android release signing (never commit; back these up)
+/android/key.properties
+/android/*.jks

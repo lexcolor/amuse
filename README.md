@@ -317,6 +317,41 @@ station starts playing, which is how the directory ranks stations.
   because the audio-only build can't play HLS, which many public
   broadcasters use exclusively.
 
+## Releasing
+
+The version lives in `pubspec.yaml` (`version: 1.1.0+2`: the number people
+see, plus a build counter that only ever goes up). Before building a release,
+raise it there; every platform picks it up from that one line, and the app
+shows it under **Settings → About**, so a user can tell whether they're on
+the latest build. The web build must carry the version it was compiled with
+(a cached page would otherwise report whatever the server has now), so
+`tool/deploy_web.ps1` passes it as `--dart-define=AMUSE_VERSION=1.1.0+2`; do
+the same when building the web app by hand.
+
+To ship a Windows installer and an Android APK as a GitHub release:
+
+```powershell
+powershell -File tool/release.ps1 -Publish
+```
+
+It builds both into `build/installer/`, tags the commit `v<version>`, pushes
+the tag and creates the release with the two files attached. It needs
+[Inno Setup 6](https://jrsoftware.org/isinfo.php), the GitHub CLI signed in
+(`gh auth login`), and the Android upload key: `android/upload-keystore.jks`
+plus `android/key.properties` naming it (`storeFile`, `storePassword`,
+`keyAlias`, `keyPassword`). Both are ignored by git. Back them up: an APK
+signed with a different key can't update an installed one. Without
+`-Publish` it only builds.
+
+The app icon on every platform is derived from the web icons in `web/icons/`.
+After changing those, regenerate the rest (the Python step needs Pillow):
+
+```powershell
+python tool/icon/make_sources.py
+dart run flutter_launcher_icons
+git checkout -- ios/Runner.xcodeproj/project.pbxproj   # the generator edits a setting it shouldn't
+```
+
 ## Checks
 
 ```powershell

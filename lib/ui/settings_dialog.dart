@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../core/app_version.dart';
 import '../core/settings.dart';
 import 'theme.dart';
 
@@ -71,6 +72,14 @@ class _SettingsDialog extends ConsumerWidget {
               ),
               const SizedBox(height: 28),
               Text('ABOUT', style: text.labelSmall?.copyWith(color: AmuseColors.textMuted)),
+              const SizedBox(height: 8),
+              Text(
+                switch (ref.watch(appVersionProvider).value) {
+                  final v? => 'Amuse $v',
+                  null => 'Amuse',
+                },
+                style: text.bodyMedium?.copyWith(color: AmuseColors.textSecondary),
+              ),
               const SizedBox(height: 4),
               Wrap(spacing: 8, children: [
                 TextButton(onPressed: () => launchUrl(_privacyUrl), child: const Text('Privacy policy')),

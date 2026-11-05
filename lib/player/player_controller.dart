@@ -8,6 +8,8 @@ import '../core/models.dart';
 import '../core/providers.dart';
 import '../platform/icy_titles_native.dart' if (dart.library.js_interop) '../platform/icy_titles_web.dart';
 import '../platform/media_session_native.dart' if (dart.library.js_interop) '../platform/media_session_web.dart';
+import '../platform/page_visibility_native.dart' if (dart.library.js_interop) '../platform/page_visibility_web.dart';
+import '../sources/music_source.dart';
 
 final playerProvider = Provider<Player>((ref) {
   final player = Player(configuration: const PlayerConfiguration(title: 'Amuse'));
@@ -41,6 +43,12 @@ class PlaybackState {
 /// Owns the play queue. The queue is managed here rather than with
 /// media_kit's playlist because cloud stream URLs expire, so each track's URL
 /// is resolved only when that track starts.
+///
+/// The next track's URL is resolved ahead of time while the current one
+/// plays. iOS Safari only lets a page start audio from inside the media
+/// element's `ended` event (or a tap), so when a song finishes on a locked
+/// phone the next one has to be handed to the player at once, without
+/// waiting on the network.
 class PlayerController extends Notifier<PlaybackState> {
   Player get _player => ref.read(playerProvider);
   int _loadToken = 0;
@@ -48,20 +56,41 @@ class PlayerController extends Notifier<PlaybackState> {
   /// Bumped whenever a new queue starts, to stop a shuffle still gathering.
   int _queueToken = 0;
 
+  /// The upcoming track's stream, resolved early. Cloud URLs last about an
+  /// hour, so anything older than [_prefetchTtl] is resolved again.
+  _Prefetched? _prefetched;
+  static const _prefetchTtl = Duration(minutes: 30);
+
+  /// Whether the user expects sound right now. iOS may refuse to start the
+  /// next song while the screen is locked; unlocking retries it.
+  bool _wantPlaying = false;
+
   @override
   PlaybackState build() {
     final sub = ref.watch(playerProvider).stream.completed.listen((done) {
+      if (!done) return;
       // A radio stream that drops shouldn't jump to another station.
-      if (done && state.hasNext && !(state.current?.isLive ?? false)) next();
+      if (state.hasNext && !(state.current?.isLive ?? false)) {
+        next();
+      } else {
+        _wantPlaying = false;
+      }
     });
     final errors = ref.watch(playerProvider).stream.error.listen((message) {
       state = PlaybackState(queue: state.queue, index: state.index, error: message);
     });
+    onPageVisible(_resumeIfStalled);
     ref.onDispose(() {
       sub.cancel();
       errors.cancel();
     });
     return const PlaybackState();
+  }
+
+  /// Nudges a player that was refused `play()` while the page was hidden.
+  /// Harmless when it's already playing.
+  void _resumeIfStalled() {
+    if (_wantPlaying && state.current != null) unawaited(_player.play());
   }
 
   Future<void> playQueue(List<Track> tracks, int startIndex) async {
@@ -91,7 +120,11 @@ class PlayerController extends Notifier<PlaybackState> {
       final upcoming = [...state.queue.sublist(state.index + 1), ...batch]..shuffle(random);
       state = PlaybackState(queue: [...played, ...upcoming], index: state.index, error: state.error);
       // The songs found so far may already have run out.
-      if (_player.state.completed) unawaited(next());
+      if (_player.state.completed) {
+        unawaited(next());
+      } else {
+        unawaited(_prefetchNext());
+      }
     }
     return started;
   }
@@ -115,9 +148,21 @@ class PlayerController extends Notifier<PlaybackState> {
     await _load();
   }
 
-  Future<void> togglePlay() => _player.playOrPause();
-  Future<void> play() => _player.play();
-  Future<void> pause() => _player.pause();
+  Future<void> togglePlay() {
+    _wantPlaying = !_player.state.playing;
+    return _player.playOrPause();
+  }
+
+  Future<void> play() {
+    _wantPlaying = true;
+    return _player.play();
+  }
+
+  Future<void> pause() {
+    _wantPlaying = false;
+    return _player.pause();
+  }
+
   Future<void> seek(Duration position) => _player.seek(position);
   Future<void> setVolume(double volume) => _player.setVolume(volume);
 
@@ -125,8 +170,13 @@ class PlayerController extends Notifier<PlaybackState> {
     final track = state.current;
     if (track == null) return;
     final token = ++_loadToken;
+    _wantPlaying = true;
     try {
-      final stream = await ref.read(sourcesProvider)[track.sourceId]!.resolve(track);
+      // Use the stream resolved ahead of time when it's for this track, so
+      // nothing asynchronous sits between the previous song ending and
+      // handing the player its successor (see the class comment).
+      final ready = _takePrefetched(track);
+      final stream = ready ?? await ref.read(sourcesProvider)[track.sourceId]!.resolve(track);
       // A newer request (fast skipping) supersedes this one.
       if (token != _loadToken) return;
       // mpv takes local files as plain paths (no %-escaping to undo).
@@ -137,7 +187,41 @@ class PlayerController extends Notifier<PlaybackState> {
       if (token != _loadToken) return;
       state = PlaybackState(queue: state.queue, index: state.index, error: '$e');
     }
+    if (token == _loadToken) unawaited(_prefetchNext());
   }
+
+  PlayableStream? _takePrefetched(Track track) {
+    final p = _prefetched;
+    _prefetched = null;
+    if (p == null || p.track != track) return null;
+    if (DateTime.now().difference(p.resolvedAt) > _prefetchTtl) return null;
+    return p.stream;
+  }
+
+  /// Resolves the upcoming track's stream in the background. Failures are
+  /// ignored: the track is resolved again, with proper error handling, when
+  /// its turn comes.
+  Future<void> _prefetchNext() async {
+    if (!state.hasNext) return;
+    final track = state.queue[state.index + 1];
+    if (track.isLive || _prefetched?.track == track) return;
+    final MusicSource? source = ref.read(sourcesProvider)[track.sourceId];
+    if (source == null) return;
+    try {
+      final stream = await source.resolve(track);
+      _prefetched = _Prefetched(track, stream, DateTime.now());
+    } catch (_) {
+      // Resolved for real when the track starts.
+    }
+  }
+}
+
+class _Prefetched {
+  const _Prefetched(this.track, this.stream, this.resolvedAt);
+
+  final Track track;
+  final PlayableStream stream;
+  final DateTime resolvedAt;
 }
 
 final playerControllerProvider =
