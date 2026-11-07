@@ -1,6 +1,7 @@
 import 'dart:math';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/models.dart';
@@ -34,6 +35,16 @@ class BrowserView extends ConsumerWidget {
       if (session.hasError || session.value != true) return _Connect(source: source, error: session.error);
     }
 
+    final query = ref.watch(searchQueryProvider).trim();
+    return Column(children: [
+      _SearchBar(sourceName: source!.displayName),
+      Expanded(
+        child: query.isEmpty ? _listing(ref, browse, source) : _SearchResultsView(source: source, query: query),
+      ),
+    ]);
+  }
+
+  Widget _listing(WidgetRef ref, BrowseState browse, MusicSource source) {
     final listing = ref.watch(folderListingProvider((browse.sourceId, browse.folderId)));
     return listing.when(
       loading: () => const Center(child: CircularProgressIndicator()),
@@ -93,7 +104,7 @@ class _FolderView extends ConsumerWidget {
     return CustomScrollView(
       slivers: [
         SliverPadding(
-          padding: EdgeInsets.fromLTRB(g, 28, g, 0),
+          padding: EdgeInsets.fromLTRB(g, 16, g, 0),
           sliver: SliverToBoxAdapter(child: _Breadcrumbs(sourceName: source.displayName, path: browse.path)),
         ),
         SliverPadding(
@@ -498,11 +509,14 @@ class _FolderCardState extends State<_FolderCard> {
 
 class _TrackRow extends ConsumerStatefulWidget {
   const _TrackRow({
+    super.key,
     required this.track,
     required this.index,
     required this.showAlbum,
     required this.onTap,
     this.onRemove,
+    this.numbered = false,
+    this.enrich = false,
   });
 
   final Track track;
@@ -510,6 +524,13 @@ class _TrackRow extends ConsumerStatefulWidget {
   final bool showAlbum;
   final VoidCallback onTap;
   final VoidCallback? onRemove;
+
+  /// Show the row's position instead of the track number.
+  final bool numbered;
+
+  /// Fill in tags from the file as the row comes into view. Folder views
+  /// enrich up front, to sort by track number.
+  final bool enrich;
 
   @override
   ConsumerState<_TrackRow> createState() => _TrackRowState();
@@ -520,7 +541,7 @@ class _TrackRowState extends ConsumerState<_TrackRow> {
 
   @override
   Widget build(BuildContext context) {
-    final track = widget.track;
+    final track = widget.enrich ? ref.enriched(widget.track) : widget.track;
     final isCurrent = ref.watch(playerControllerProvider.select((s) => s.current == track));
     final text = Theme.of(context).textTheme;
 
@@ -530,7 +551,8 @@ class _TrackRowState extends ConsumerState<_TrackRow> {
     } else if (isCurrent) {
       leading = const Icon(Icons.graphic_eq_rounded, size: 18, color: AmuseColors.accent);
     } else {
-      leading = Text('${track.trackNumber ?? widget.index + 1}', style: text.bodyMedium);
+      leading = Text('${widget.numbered ? widget.index + 1 : track.trackNumber ?? widget.index + 1}',
+          style: text.bodyMedium);
     }
 
     return MouseRegion(
@@ -697,4 +719,187 @@ class _RemoveButton extends StatelessWidget {
           padding: EdgeInsets.zero,
         ),
       );
+}
+
+/// Searches the open source. Stays put above the folder view and the
+/// results, so typing never loses focus as the content below switches.
+class _SearchBar extends ConsumerStatefulWidget {
+  const _SearchBar({required this.sourceName});
+
+  final String sourceName;
+
+  @override
+  ConsumerState<_SearchBar> createState() => _SearchBarState();
+}
+
+class _SearchBarState extends ConsumerState<_SearchBar> {
+  // Rebuilt when the window crosses the phone/desktop width; keep the query.
+  late final _text = TextEditingController(text: ref.read(searchQueryProvider));
+
+  @override
+  void dispose() {
+    _text.dispose();
+    super.dispose();
+  }
+
+  void _clear() {
+    _text.clear();
+    ref.read(searchQueryProvider.notifier).clear();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Browsing elsewhere clears the query; empty the box to match.
+    ref.listen(searchQueryProvider, (_, query) {
+      if (query != _text.text) _text.text = query;
+    });
+    final g = pageGutter(context);
+    final field = CallbackShortcuts(
+      bindings: {const SingleActivator(LogicalKeyboardKey.escape): _clear},
+      child: ListenableBuilder(
+        listenable: _text,
+        builder: (context, _) => TextField(
+          controller: _text,
+          onChanged: ref.read(searchQueryProvider.notifier).set,
+          textInputAction: TextInputAction.search,
+          style: const TextStyle(fontSize: 14, color: AmuseColors.textPrimary),
+          decoration: InputDecoration(
+            isDense: true,
+            hintText: 'Search ${widget.sourceName}',
+            hintStyle: const TextStyle(color: AmuseColors.textMuted),
+            prefixIcon: const Icon(Icons.search_rounded, size: 20, color: AmuseColors.textSecondary),
+            suffixIcon: _text.text.isEmpty
+                ? null
+                : IconButton(
+                    tooltip: 'Clear search',
+                    onPressed: _clear,
+                    icon: const Icon(Icons.close_rounded, size: 18),
+                    color: AmuseColors.textMuted,
+                  ),
+            filled: true,
+            fillColor: Colors.white.withValues(alpha: 0.06),
+            contentPadding: const EdgeInsets.symmetric(vertical: 12),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(24),
+              borderSide: BorderSide.none,
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(24),
+              borderSide: BorderSide(color: AmuseColors.accent.withValues(alpha: 0.6)),
+            ),
+          ),
+        ),
+      ),
+    );
+    return Padding(
+      padding: EdgeInsets.fromLTRB(g, isCompact(context) ? 8 : 24, g, 0),
+      child: Align(
+        alignment: Alignment.centerLeft,
+        child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 380), child: field),
+      ),
+    );
+  }
+}
+
+/// Songs matching the search. Picking one plays it, then the rest of its
+/// folder in random order.
+class _SearchResultsView extends ConsumerStatefulWidget {
+  const _SearchResultsView({required this.source, required this.query});
+
+  final MusicSource source;
+  final String query;
+
+  @override
+  ConsumerState<_SearchResultsView> createState() => _SearchResultsViewState();
+}
+
+class _SearchResultsViewState extends ConsumerState<_SearchResultsView> {
+  /// The last results shown, kept on screen while the next query runs so
+  /// the list doesn't blink on every keystroke.
+  SearchResults? _shown;
+
+  @override
+  Widget build(BuildContext context) {
+    final key = (widget.source.id, widget.query);
+    final results = ref.watch(searchResultsProvider(key));
+    if (results.hasError && !results.isLoading) {
+      return StatusMessage(
+        icon: Icons.search_off_rounded,
+        title: 'Search didn\'t work',
+        body: '${results.error}',
+        action: FilledButton.tonal(
+          onPressed: () => ref.invalidate(searchResultsProvider(key)),
+          child: const Text('Try again'),
+        ),
+      );
+    }
+    if (results.hasValue) _shown = results.value;
+    final shown = _shown;
+    final searching = results.isLoading || !(results.value?.done ?? false);
+    if (shown == null || (shown.tracks.isEmpty && searching)) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (shown.tracks.isEmpty) {
+      return StatusMessage(
+        icon: Icons.search_off_rounded,
+        title: 'No songs found',
+        body: 'Nothing in ${widget.source.displayName} matches “${widget.query}”.',
+      );
+    }
+
+    final g = pageGutter(context);
+    final text = Theme.of(context).textTheme;
+    final tracks = shown.tracks;
+    final controller = ref.read(playerControllerProvider.notifier);
+    return CustomScrollView(slivers: [
+      SliverPadding(
+        padding: EdgeInsets.fromLTRB(g, 24, g, 20),
+        sliver: SliverToBoxAdapter(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('SEARCH', style: text.labelSmall?.copyWith(color: AmuseColors.textSecondary)),
+            const SizedBox(height: 8),
+            Row(children: [
+              Flexible(
+                child: Text(
+                  '${tracks.length}${tracks.length >= searchLimit ? '+' : ''} '
+                  '${tracks.length == 1 ? 'song' : 'songs'} in ${widget.source.displayName}',
+                  style: text.headlineSmall,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              if (searching) ...[
+                const SizedBox(width: 14),
+                const SizedBox.square(dimension: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+              ],
+            ]),
+            const SizedBox(height: 6),
+            Row(children: [
+              const Icon(Icons.shuffle_rounded, size: 15, color: AmuseColors.textMuted),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text('Pick a song to play it, then the rest of its folder on shuffle.',
+                    style: text.bodySmall),
+              ),
+            ]),
+          ]),
+        ),
+      ),
+      SliverPadding(
+        padding: EdgeInsets.fromLTRB(g - 12, 0, g - 12, 40),
+        sliver: SliverList.builder(
+          itemCount: tracks.length,
+          itemBuilder: (context, i) => _TrackRow(
+            key: ValueKey(tracks[i]),
+            track: tracks[i],
+            index: i,
+            showAlbum: true,
+            numbered: true,
+            enrich: true,
+            onTap: () => controller.playThenShuffleFolder(tracks[i]),
+          ),
+        ),
+      ),
+    ]);
+  }
 }

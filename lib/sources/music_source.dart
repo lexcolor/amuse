@@ -22,6 +22,33 @@ abstract class DeepListing {
   Stream<List<Track>> tracksUnder(String folderId);
 }
 
+/// A source with its own search, faster than walking every folder.
+abstract class Searchable {
+  /// Tracks matching [query], with [Track.folderId] set, in batches.
+  Stream<List<Track>> search(String query);
+}
+
+/// Most results a search shows; enough to find a song, cheap to list.
+const searchLimit = 200;
+
+/// Songs in [source] matching [query], in batches as they're found. Sources
+/// without a search of their own are walked from their root and matched on
+/// file names (tags aren't read while walking).
+Stream<List<Track>> searchSource(MusicSource source, String query) async* {
+  var count = 0;
+  final batches = source is Searchable
+      ? (source as Searchable).search(query)
+      : tracksUnder(source, await source.list(null))
+          .map((batch) => batch.where((t) => matchesQuery(t, query)).toList());
+  await for (final batch in batches) {
+    if (batch.isEmpty) continue;
+    final room = searchLimit - count;
+    yield batch.length > room ? batch.sublist(0, room) : batch;
+    count += batch.length;
+    if (count >= searchLimit) return;
+  }
+}
+
 /// Every track in [listing] and anywhere below its folders, in batches as
 /// they're found, so playback can start before a large library is covered.
 /// Folders that fail to load are skipped.

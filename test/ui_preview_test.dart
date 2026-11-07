@@ -110,6 +110,14 @@ void main() {
     });
   });
 
+  testWidgets('search results', skip: _skip, (tester) async {
+    await _shoot(tester, 'search', folder: null, playing: true, search: 'blue');
+  });
+
+  testWidgets('phone search results', skip: _skip, (tester) async {
+    await _shoot(tester, 'phone_search', folder: null, playing: true, search: 'blue', size: phone);
+  });
+
   testWidgets('connect onedrive', skip: _skip, (tester) async {
     await _shoot(tester, 'connect',
         folder: null, playing: false, signedIn: false, sourceId: 'googledrive');
@@ -122,6 +130,7 @@ Future<void> _shoot(WidgetTester tester, String name,
     bool signedIn = true,
     bool lyricsOpen = false,
     String sourceId = 'onedrive',
+    String search = '',
     Size size = const Size(1400, 860),
     Future<void> Function(WidgetTester)? before}) async {
   tester.view.physicalSize = size;
@@ -132,7 +141,12 @@ Future<void> _shoot(WidgetTester tester, String name,
   debugDisableShadows = false;
   try {
     await _pump(tester,
-        folder: folder, playing: playing, signedIn: signedIn, lyricsOpen: lyricsOpen, sourceId: sourceId);
+        folder: folder,
+        playing: playing,
+        signedIn: signedIn,
+        lyricsOpen: lyricsOpen,
+        sourceId: sourceId,
+        search: search);
     await before?.call(tester);
     await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/$name.png'));
   } finally {
@@ -145,7 +159,8 @@ Future<void> _pump(WidgetTester tester,
     required bool playing,
     required bool signedIn,
     required bool lyricsOpen,
-    required String sourceId}) async {
+    required String sourceId,
+    required String search}) async {
   final coverPath = Platform.environment['AMUSE_PREVIEW_COVER'];
   final cover = coverPath == null ? null : File(coverPath);
   // Image decoding needs the real event loop, and must finish before the
@@ -187,6 +202,8 @@ Future<void> _pump(WidgetTester tester,
       radioCountriesProvider.overrideWith((_) async => const [RadioCountry(code: 'ES', name: 'Spain', stationCount: 1520)]),
       streamTitleProvider.overrideWith(_OnAir.new),
       browseProvider.overrideWith(() => _FixedBrowse(sourceId, folder)),
+      searchQueryProvider.overrideWith(() => _FixedSearch(search)),
+      searchResultsProvider.overrideWith((ref, key) => Stream.value(SearchResults(_searchHits, done: true))),
       playerControllerProvider.overrideWith(() => _FakeController(playing, radio: sourceId == 'radio')),
       positionProvider.overrideWith((_) => Stream.value(const Duration(minutes: 3, seconds: 41))),
       durationProvider.overrideWith((_) => Stream.value(const Duration(minutes: 9, seconds: 22))),
@@ -293,6 +310,35 @@ class _FixedBrowse extends BrowseController {
   @override
   BrowseState build() => BrowseState(sourceId: sourceId, path: [?folder]);
 }
+
+class _FixedSearch extends SearchQuery {
+  _FixedSearch(this.query);
+  final String query;
+
+  @override
+  String build() => query;
+}
+
+final _searchHits = [
+  _tracks[2],
+  _tracks[3],
+  for (final (i, (title, album)) in const [
+    ('Blue Train', 'Blue Train'),
+    ("Moment's Notice", 'Blue Train'),
+    ('Blue Monday', 'Power, Corruption & Lies'),
+    ('Mr. Blue Sky', 'Out of the Blue'),
+    ('Blue (Da Ba Dee)', 'Europop'),
+  ].indexed)
+    Track(
+      id: 'b$i',
+      sourceId: 'onedrive',
+      title: title,
+      artist: i < 2 ? 'John Coltrane' : null,
+      album: album,
+      duration: Duration(seconds: 260 + i * 37),
+      format: i.isEven ? 'FLAC' : 'MP3',
+    ),
+];
 
 class _FakeController extends PlayerController {
   _FakeController(this.playing, {this.radio = false});

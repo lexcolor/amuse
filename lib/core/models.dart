@@ -14,6 +14,7 @@ class Track {
     this.streamHint,
     this.artworkUrl,
     this.isLive = false,
+    this.folderId,
   });
 
   /// Provider-specific identifier (e.g. a OneDrive item id or a URL).
@@ -43,6 +44,11 @@ class Track {
 
   /// An endless stream (radio): no duration, no tags to read, no seeking.
   final bool isLive;
+
+  /// The [Folder.id] of the folder holding this track, when known. Lets a
+  /// song found by search keep playing its folder afterwards. Not part of
+  /// equality.
+  final String? folderId;
 
   String get subtitle =>
       [artist, album].whereType<String>().where((s) => s.isNotEmpty).join(' — ');
@@ -77,6 +83,7 @@ class Track {
         streamHint: streamHint,
         artworkUrl: artworkUrl,
         isLive: isLive,
+        folderId: folderId,
       );
 
   @override
@@ -121,6 +128,16 @@ class PlayableStream {
 int compareTracks(Track a, Track b) {
   final byNumber = (a.trackNumber ?? 1 << 20).compareTo(b.trackNumber ?? 1 << 20);
   return byNumber != 0 ? byNumber : a.title.toLowerCase().compareTo(b.title.toLowerCase());
+}
+
+/// Whether [track] matches every word of a search [query], looking at its
+/// title, artist and album. Case-insensitive.
+bool matchesQuery(Track track, String query) {
+  final haystack = [track.title, track.artist, track.album, track.albumArtist]
+      .whereType<String>()
+      .join(' ')
+      .toLowerCase();
+  return query.toLowerCase().split(RegExp(r'\s+')).where((w) => w.isNotEmpty).every(haystack.contains);
 }
 
 const audioExtensions = {

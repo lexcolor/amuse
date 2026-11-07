@@ -80,6 +80,36 @@ void main() {
       expect(requests.single.url.queryParameters['q'], "'root' in parents and trashed = false");
     });
 
+    test('search matches every word and remembers each song\'s folder', () async {
+      final batches = await source([
+        {
+          'files': [
+            {'id': 'a1', 'name': '01 - So What.flac', 'mimeType': 'audio/flac', 'parents': ['kob']},
+            {'id': 'n1', 'name': 'so what notes.txt', 'mimeType': 'text/plain', 'parents': ['docs']},
+            {'id': 's1', 'name': 'So What.mp3', 'mimeType': 'application/vnd.google-apps.shortcut'},
+          ],
+        },
+      ]).search("so what's").toList();
+
+      expect(batches.single.map((t) => (t.id, t.title, t.folderId)), [('a1', 'So What', 'kob')]);
+      final q = requests.single.url.queryParameters;
+      expect(q['q'],
+          "name contains 'so' and name contains 'what\\'s' and trashed = false "
+          "and mimeType != 'application/vnd.google-apps.folder'");
+      expect(q['fields'], contains('parents'));
+    });
+
+    test('listed songs remember their folder', () async {
+      final listing = await source([
+        {
+          'files': [
+            {'id': 'a1', 'name': 'x.mp3', 'mimeType': 'audio/mpeg'},
+          ],
+        },
+      ]).list(null);
+      expect(listing.tracks.single.folderId, 'root');
+    });
+
     test('streams carry the access token', () async {
       final stream = await source(const []).resolve(const Track(id: 'a1', sourceId: 'googledrive', title: 'x'));
       expect(stream.uri.toString(), 'https://www.googleapis.com/drive/v3/files/a1?alt=media');
@@ -127,7 +157,7 @@ void main() {
         },
         {
           'value': [
-            {'id': 't2', 'name': '02 Outro.mp3', 'file': {}},
+            {'id': 't2', 'name': '02 Outro.mp3', 'file': {}, 'parentReference': {'id': 'cd2'}},
             {'id': 'gone', 'name': 'old.mp3', 'file': {}, 'deleted': {'state': 'deleted'}},
           ],
           '@odata.deltaLink': 'https://graph.microsoft.com/v1.0/delta-token',
@@ -143,8 +173,62 @@ void main() {
       );
       final batches = await source.tracksUnder('folder1').toList();
       expect(batches.expand((b) => b).map((t) => t.title), ['Intro', 'Outro']);
+      expect(batches.last.single.folderId, 'cd2');
       expect(requests.first.path, '/v1.0/me/drive/items/folder1/delta');
+      expect(requests.first.queryParameters[r'$select'], contains('parentReference'));
       expect(requests.last.toString(), 'https://graph.microsoft.com/v1.0/next');
+    });
+  });
+
+  group('search', () {
+    Track song(String id, String title, {String? folderId}) =>
+        Track(id: id, sourceId: 'fake', title: title, folderId: folderId);
+
+    test('OneDrive uses Graph search, keeps audio and each song\'s folder', () async {
+      final requests = <Uri>[];
+      final source = OneDriveSource(
+        _FakeAuth(),
+        client: MockClient((request) async {
+          requests.add(request.url);
+          return http.Response(
+              jsonEncode({
+                'value': [
+                  {
+                    'id': 't1',
+                    'name': '01 So What.flac',
+                    'file': {},
+                    'audio': {'title': 'So What', 'artist': 'Miles Davis'},
+                    'parentReference': {'id': 'kob'},
+                  },
+                  {'id': 'd1', 'name': 'So What.pdf', 'file': {}, 'parentReference': {'id': 'docs'}},
+                  {'id': 'f1', 'name': 'So What', 'folder': {'childCount': 1}},
+                ],
+              }),
+              200);
+        }),
+      );
+      final batches = await source.search("Miles' so what").toList();
+      expect(batches.single.map((t) => (t.id, t.title, t.folderId)), [('t1', 'So What', 'kob')]);
+      expect(Uri.decodeComponent(requests.single.path), "/v1.0/me/drive/root/search(q='Miles'' so what')");
+    });
+
+    test('sources without their own search are walked and matched on every word', () async {
+      final drive = _FakeDrive({
+        null: FolderListing(folders: const [Folder(id: 'a', name: 'A')], tracks: [song('r', 'Blue Train')]),
+        'a': FolderListing(folders: const [], tracks: [
+          song('1', 'Blue in Green', folderId: 'a'),
+          song('2', 'So What', folderId: 'a'),
+        ]),
+      });
+      final found = (await searchSource(drive, 'green BLUE').toList()).expand((b) => b);
+      expect(found.map((t) => (t.id, t.folderId)), [('1', 'a')]);
+    });
+
+    test('matchesQuery looks at title, artist and album', () {
+      const t = Track(id: 'x', sourceId: 'fake', title: 'So What', artist: 'Miles Davis', album: 'Kind of Blue');
+      expect(matchesQuery(t, 'miles blue'), isTrue);
+      expect(matchesQuery(t, '  what  '), isTrue);
+      expect(matchesQuery(t, 'coltrane'), isFalse);
     });
   });
 

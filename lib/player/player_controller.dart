@@ -65,6 +65,10 @@ class PlayerController extends Notifier<PlaybackState> {
   /// next song while the screen is locked; unlocking retries it.
   bool _wantPlaying = false;
 
+  /// The track the player was last handed. Until the current track gets
+  /// there, the player's `completed` flag still describes the previous one.
+  Track? _opened;
+
   @override
   PlaybackState build() {
     final sub = ref.watch(playerProvider).stream.completed.listen((done) {
@@ -116,17 +120,49 @@ class PlayerController extends Notifier<PlaybackState> {
         unawaited(_load());
         continue;
       }
-      final played = state.queue.sublist(0, state.index + 1);
-      final upcoming = [...state.queue.sublist(state.index + 1), ...batch]..shuffle(random);
-      state = PlaybackState(queue: [...played, ...upcoming], index: state.index, error: state.error);
-      // The songs found so far may already have run out.
-      if (_player.state.completed) {
-        unawaited(next());
-      } else {
-        unawaited(_prefetchNext());
-      }
+      _shuffleIntoUpcoming(batch, random);
     }
     return started;
+  }
+
+  /// Plays [first], then the rest of the songs in its folder (sub-folders
+  /// included) in random order. Used for songs picked from search results.
+  Future<void> playThenShuffleFolder(Track first) async {
+    final token = ++_queueToken;
+    state = PlaybackState(queue: [first], index: 0);
+    unawaited(_load());
+    final source = ref.read(sourcesProvider)[first.sourceId];
+    if (source == null) return;
+    final random = Random();
+    try {
+      // Songs at a source's root (Samples, links in Folders) have no folder
+      // to walk; their neighbours are the rest of the root.
+      final folderId = first.folderId;
+      final batches = folderId == null
+          ? Stream.fromFuture(source.list(null).then((l) => l.tracks))
+          : tracksUnder(source, FolderListing(folders: [Folder(id: folderId, name: '')], tracks: const []));
+      await for (final batch in batches) {
+        if (token != _queueToken) return;
+        final others = [for (final t in batch) if (t != first && !t.isLive) t];
+        if (others.isNotEmpty) _shuffleIntoUpcoming(others, random);
+      }
+    } catch (_) {
+      // The chosen song still plays; there's just nothing queued after it.
+    }
+  }
+
+  /// Mixes [batch] into the songs still to come, keeping what's played and
+  /// playing in place.
+  void _shuffleIntoUpcoming(List<Track> batch, Random random) {
+    final played = state.queue.sublist(0, state.index + 1);
+    final upcoming = [...state.queue.sublist(state.index + 1), ...batch]..shuffle(random);
+    state = PlaybackState(queue: [...played, ...upcoming], index: state.index, error: state.error);
+    // The songs found so far may already have run out.
+    if (_player.state.completed && _opened == state.current) {
+      unawaited(next());
+    } else {
+      unawaited(_prefetchNext());
+    }
   }
 
   Future<void> next() async {
@@ -171,6 +207,7 @@ class PlayerController extends Notifier<PlaybackState> {
     if (track == null) return;
     final token = ++_loadToken;
     _wantPlaying = true;
+    _opened = null;
     try {
       // Use the stream resolved ahead of time when it's for this track, so
       // nothing asynchronous sits between the previous song ending and
@@ -183,6 +220,7 @@ class PlayerController extends Notifier<PlaybackState> {
       final uri = stream.uri;
       final location = uri.scheme == 'file' ? uri.toFilePath() : uri.toString();
       await _player.open(Media(location, httpHeaders: stream.headers));
+      _opened = track;
     } catch (e) {
       if (token != _loadToken) return;
       state = PlaybackState(queue: state.queue, index: state.index, error: '$e');

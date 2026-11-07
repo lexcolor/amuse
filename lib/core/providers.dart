@@ -115,3 +115,49 @@ final folderListingProvider =
   }
   return source.list(folderId);
 });
+
+/// What the user typed in the library search box. Cleared whenever they
+/// browse somewhere else.
+class SearchQuery extends Notifier<String> {
+  @override
+  String build() {
+    ref.listen(browseProvider, (_, _) => state = '');
+    return '';
+  }
+
+  void set(String query) => state = query;
+
+  void clear() => state = '';
+}
+
+final searchQueryProvider = NotifierProvider<SearchQuery, String>(SearchQuery.new);
+
+/// Songs found so far, and whether the search has finished.
+class SearchResults {
+  const SearchResults(this.tracks, {required this.done});
+
+  final List<Track> tracks;
+  final bool done;
+}
+
+/// Searches one source for a query. Waits a moment first, so typing doesn't
+/// fire a request per keystroke: each keystroke is a new query, and the
+/// previous one is dropped before it starts.
+final searchResultsProvider =
+    StreamProvider.autoDispose.family<SearchResults, (String, String)>((ref, key) async* {
+  final (sourceId, query) = key;
+  final source = ref.read(sourcesProvider)[sourceId];
+  await Future<void>.delayed(const Duration(milliseconds: 350));
+  if (!ref.mounted) return;
+  if (source == null || query.trim().isEmpty) {
+    yield const SearchResults([], done: true);
+    return;
+  }
+  final found = <Track>[];
+  await for (final batch in searchSource(source, query.trim())) {
+    if (!ref.mounted) return;
+    found.addAll(batch);
+    yield SearchResults(List.unmodifiable(found), done: false);
+  }
+  yield SearchResults(List.unmodifiable(found), done: true);
+});

@@ -9,7 +9,7 @@ import '../music_source.dart';
 
 /// Browses and streams music from the signed-in user's OneDrive through
 /// Microsoft Graph.
-class OneDriveSource implements CloudSource, DeepListing {
+class OneDriveSource implements CloudSource, DeepListing, Searchable {
   OneDriveSource(this.auth, {http.Client? client}) : _http = client ?? http.Client();
 
   static const _graph = 'https://graph.microsoft.com/v1.0';
@@ -48,7 +48,7 @@ class OneDriveSource implements CloudSource, DeepListing {
             isMusicLibrary: (item['specialFolder'] as Map?)?['name'] == 'music',
           ));
         } else if (item['file'] != null) {
-          final track = _trackFrom(item);
+          final track = _trackFrom(item, folderId: folderId);
           if (track != null) tracks.add(track);
         }
       }
@@ -65,7 +65,7 @@ class OneDriveSource implements CloudSource, DeepListing {
   /// few large pages instead of one request per sub-folder.
   @override
   Stream<List<Track>> tracksUnder(String folderId) async* {
-    Uri? next = Uri.parse('$_graph/me/drive/items/$folderId/delta?\$select=id,name,file,audio,deleted');
+    Uri? next = Uri.parse('$_graph/me/drive/items/$folderId/delta?\$select=id,name,file,audio,deleted,parentReference');
     while (next != null) {
       final page = await _get(next);
       final tracks = [
@@ -74,6 +74,24 @@ class OneDriveSource implements CloudSource, DeepListing {
       ];
       if (tracks.isNotEmpty) yield tracks;
       final link = page['@odata.nextLink'] as String?;
+      next = link == null ? null : Uri.parse(link);
+    }
+  }
+
+  /// Graph's drive search matches file names and tags. Results that aren't
+  /// audio take up page slots too, so a few pages are read.
+  @override
+  Stream<List<Track>> search(String query) async* {
+    final q = Uri.encodeComponent(query.replaceAll("'", "''"));
+    Uri? next = Uri.parse("$_graph/me/drive/root/search(q='$q')?\$top=200");
+    for (var page = 0; next != null && page < 5; page++) {
+      final body = await _get(next);
+      final tracks = [
+        for (final item in (body['value'] as List).cast<Map<String, dynamic>>())
+          if (item['file'] != null) ?_trackFrom(item),
+      ];
+      if (tracks.isNotEmpty) yield tracks;
+      final link = body['@odata.nextLink'] as String?;
       next = link == null ? null : Uri.parse(link);
     }
   }
@@ -101,7 +119,7 @@ class OneDriveSource implements CloudSource, DeepListing {
     return response.isRedirect || response.statusCode == 302 ? response.headers['location'] : null;
   }
 
-  Track? _trackFrom(Map<String, dynamic> item) {
+  Track? _trackFrom(Map<String, dynamic> item, {String? folderId}) {
     final name = item['name'] as String;
     final ext = extensionOf(name);
     if (ext == null || !audioExtensions.contains(ext)) return null;
@@ -122,6 +140,7 @@ class OneDriveSource implements CloudSource, DeepListing {
       albumArtist: _nonEmpty(audio?['albumArtist']),
       year: audio?['year'] as int?,
       streamHint: item['@microsoft.graph.downloadUrl'] as String?,
+      folderId: (item['parentReference'] as Map?)?['id'] as String? ?? folderId,
     );
   }
 

@@ -71,7 +71,7 @@ class FoldersSource implements MusicSource {
       } else if (_coverName.hasMatch(entry.name)) {
         cover ??= entry.uri;
       } else if (audioExtensions.contains(extensionOf(entry.name))) {
-        tracks.add(_track(entry.uri, entry.name));
+        tracks.add(_track(entry.uri, entry.name, folderId: uri));
       }
     }
     return _finish(folders, tracks, cover);
@@ -91,7 +91,7 @@ class FoldersSource implements MusicSource {
           if (_coverName.hasMatch(name)) {
             cover ??= entity.uri.toString();
           } else if (audioExtensions.contains(extensionOf(name))) {
-            tracks.add(_track(entity.path, name));
+            tracks.add(_track(entity.path, name, folderId: path));
           }
         }
       }
@@ -119,7 +119,7 @@ class FoldersSource implements MusicSource {
       [for (final d in index.folders) Folder(id: d.url.toString(), name: d.name)],
       [
         for (final f in index.files)
-          if (audioExtensions.contains(extensionOf(f.name))) _track(f.url.toString(), f.name),
+          if (audioExtensions.contains(extensionOf(f.name))) _track(f.url.toString(), f.name, folderId: url),
       ],
       cover,
     );
@@ -138,12 +138,13 @@ class FoldersSource implements MusicSource {
                 trackNumber: t.trackNumber,
                 format: t.format,
                 artworkUrl: cover,
+                folderId: t.folderId,
               ),
     ]..sort(compareTracks);
     return FolderListing(folders: folders, tracks: withCover);
   }
 
-  Track _track(String id, String fileName, {bool isLive = false}) {
+  Track _track(String id, String fileName, {bool isLive = false, String? folderId}) {
     final fromName = titleFromFileName(fileName);
     return Track(
       id: id,
@@ -152,6 +153,7 @@ class FoldersSource implements MusicSource {
       trackNumber: isLive ? null : fromName.number,
       format: extensionOf(fileName)?.toUpperCase(),
       isLive: isLive,
+      folderId: folderId,
     );
   }
 }

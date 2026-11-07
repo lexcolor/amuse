@@ -61,6 +61,8 @@ void main() {
         ('Uno', 1, 'FLAC'),
         ('Dos', 2, 'MP3'),
       ]);
+      // Songs remember their folder, cover or not.
+      expect(listing.tracks.map((t) => t.folderId).toSet(), {dir.path});
       final cover = Uri.parse(listing.tracks.first.artworkUrl!);
       expect(File.fromUri(cover).existsSync(), isTrue);
       expect(cover.pathSegments.last, 'Cover.JPG');

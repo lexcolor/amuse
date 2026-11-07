@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import '../../core/models.dart';
 import '../auth/loopback_oauth.dart';
 import '../cloud_source.dart';
+import '../music_source.dart';
 
 /// OAuth clients from Google Cloud Console, supplied at build time: a
 /// "Desktop app" client (`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`) and, for
@@ -43,7 +44,7 @@ const googleDriveOAuth = OAuthConfig(
 /// send one, so the web build streams through the host's `/drive/` proxy
 /// (worker/index.js), which adds it. Tags come from the files themselves
 /// since Drive doesn't extract audio metadata.
-class GoogleDriveSource implements CloudSource {
+class GoogleDriveSource implements CloudSource, Searchable {
   GoogleDriveSource(this.auth, {http.Client? client}) : _http = client ?? http.Client();
 
   static const _folderMime = 'application/vnd.google-apps.folder';
@@ -94,22 +95,51 @@ class GoogleDriveSource implements CloudSource {
           folders.add(Folder(id: id, name: name));
           continue;
         }
-        final ext = extensionOf(name);
-        if (!audioExtensions.contains(ext) && !mime.startsWith('audio/')) continue;
-        final fromName = titleFromFileName(name);
-        tracks.add(Track(
-          id: id,
-          sourceId: this.id,
-          title: fromName.title,
-          trackNumber: fromName.number,
-          format: (ext ?? mime.split('/').last).toUpperCase(),
-        ));
+        final track = _track(id, name, mime, folderId ?? 'root');
+        if (track != null) tracks.add(track);
       }
       pageToken = page['nextPageToken'] as String?;
     } while (pageToken != null);
 
     tracks.sort(compareTracks);
     return FolderListing(folders: folders, tracks: tracks);
+  }
+
+  /// Drive matches file names (by word prefix), across the whole drive.
+  @override
+  Stream<List<Track>> search(String query) async* {
+    final words = query.trim().split(RegExp(r'\s+')).where((w) => w.isNotEmpty);
+    final nameClauses = [
+      for (final w in words) "name contains '${w.replaceAll(r'\', r'\').replaceAll("'", r"\'")}'",
+    ];
+    if (nameClauses.isEmpty) return;
+    final page = await _get(Uri.https('www.googleapis.com', '/drive/v3/files', {
+      'q': '${nameClauses.join(' and ')} and trashed = false and mimeType != \'$_folderMime\'',
+      'fields': 'files(id, name, mimeType, parents)',
+      'pageSize': '$searchLimit',
+    }));
+    final tracks = [
+      for (final file in (page['files'] as List).cast<Map<String, dynamic>>())
+        // A shortcut's own id can't be streamed.
+        if (file['mimeType'] != _shortcutMime)
+          ?_track(file['id'] as String, file['name'] as String, file['mimeType'] as String,
+            (file['parents'] as List?)?.firstOrNull as String?),
+    ];
+    if (tracks.isNotEmpty) yield tracks;
+  }
+
+  Track? _track(String id, String name, String mime, String? folderId) {
+    final ext = extensionOf(name);
+    if (!audioExtensions.contains(ext) && !mime.startsWith('audio/')) return null;
+    final fromName = titleFromFileName(name);
+    return Track(
+      id: id,
+      sourceId: this.id,
+      title: fromName.title,
+      trackNumber: fromName.number,
+      format: (ext ?? mime.split('/').last).toUpperCase(),
+      folderId: folderId,
+    );
   }
 
   @override
