@@ -52,7 +52,12 @@ class OAuthConfig {
 class LoopbackOAuth {
   LoopbackOAuth(this.config, {http.Client? client, FlutterSecureStorage? storage})
       : _http = client ?? http.Client(),
-        _storage = storage ?? const FlutterSecureStorage();
+        // The data-protection keychain needs an entitlement that only a
+        // provisioned (paid-team) signature can carry; ad-hoc builds can't use it.
+        _storage = storage ??
+            const FlutterSecureStorage(
+              mOptions: MacOsOptions(usesDataProtectionKeychain: false),
+            );
 
   final OAuthConfig config;
   final http.Client _http;

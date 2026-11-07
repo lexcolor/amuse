@@ -60,7 +60,8 @@ very welcome. See [Contributing](#contributing).
 | Windows desktop | ✅ builds and plays |
 | Web / PWA | OneDrive, Google Drive, Samples and Radio; phone layout; lock-screen controls. Tested as an installed iPhone PWA; privacy policy and terms at `/privacy` and `/terms` (`web/`) |
 | Android | in progress: folders and SD cards through the system folder picker; background playback not done yet |
-| iOS / macOS | scaffolded, not yet built (needs a Mac) |
+| macOS desktop | builds and plays; unsandboxed and signed ad hoc, for personal use. Cloud sign-in not yet tested |
+| iOS | scaffolded, not yet built |
 | OneDrive (Microsoft Graph) | browse folders, tags from OneDrive's `audio` facet, streaming |
 | Sample library | public FLAC + MP3 files for testing playback |
 | Tags & cover art | read from the files themselves (FLAC, ID3v2.2–2.4); missing covers from Deezer → iTunes |
@@ -105,8 +106,19 @@ CocoaPods if requested). Then:
 flutter run -d macos --dart-define-from-file=config/app_config.json
 ```
 
-The macOS app already has the network entitlements it needs (streaming, and
-the local sign-in redirect) and the location entitlement for radio's "Near me". iOS still needs work before it's usable: an
+To build `Amuse.app`, and optionally install it to `/Applications`:
+
+```bash
+tool/build_macos.sh --install
+```
+
+The macOS app runs without the app sandbox, so saved folders and network shares
+keep working after a restart. It's signed ad hoc, which suits the Mac that built
+it; on other Macs Gatekeeper warns about or blocks it, and the Mac App Store
+would require the sandbox. Sign-ins are kept in the regular login keychain, and
+macOS may ask for permission to read them again after a rebuild.
+
+iOS still needs work before it's usable: an
 in-app browser sign-in flow (the desktop's local redirect doesn't work on
 iOS) and background-audio / lock-screen support.
 
@@ -293,9 +305,9 @@ or a `.m3u`/`.pls` playlist) becomes a live track.
   SD cards. Pasted paths don't work, since apps can't read shared storage by
   path without a permission Amuse doesn't ask for. If an SD card is removed,
   its folders show an error until the card is back.
-- macOS: the app sandbox only grants access to a picked folder for the
-  current run. Remembering it across launches needs security-scoped
-  bookmarks, which aren't implemented yet.
+- macOS: the app runs without the sandbox, so folders stay available across
+  launches. macOS may still ask once for access to protected places such as
+  Documents, Downloads or a network volume.
 
 ### Radio
 
